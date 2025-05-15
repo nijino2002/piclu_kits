@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Manager</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { padding-top: 50px; }
+        .container { max-width: 900px; }
+        .card { margin-bottom: 20px; }
+        .alert { margin-top: 20px; }
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2 class="text-center">Task Manager</h2>
+    
+    <div class="card">
+        <div class="card-header">Submit Task</div>
+        <div class="card-body">
+            <form id="taskForm" action="/start_task" method="POST" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label for="ip">Raspberry Pi IP Address</label>
+                    <input type="text" class="form-control" id="ip" name="ip" required placeholder="Enter IP Address">
+                </div>
+                <div class="form-group">
+                    <label for="task_file">Task File (ZIP)</label>
+                    <input type="file" class="form-control-file" id="task_file" name="task_file" required>
+                </div>
+                <div class="form-group">
+                    <label for="task_type">Task Type</label>
+                    <input type="text" class="form-control" id="task_type" name="task_type" required placeholder="Enter Task Type">
+                </div>
+                <div class="form-group">
+                    <label for="dependency_id">Depends on Task ID (Optional)</label>
+                    <input type="text" class="form-control" id="dependency_id" name="dependency_id" placeholder="Previous Task ID">
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">Submit Task</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="result" class="alert" style="display: none;"></div>
+
+    <div id="taskStatusSection" style="display: none;">
+        <h4>Current Task Status</h4>
+        <div id="taskStatus"></div>
+        <a id="downloadLink" href="#" style="display: none;" class="btn btn-success mt-3">Download Result</a>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Task History</div>
+        <div class="card-body">
+            {% if tasks %}
+            <ul class="list-group">
+                {% for task in tasks %}
+                <li class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>Task ID:</strong> {{ task.id }}<br>
+                            {% if task.submit_time %}
+                            <small>Submitted: {{ task.submit_time }}</small><br>
+                            {% endif %}
+                            {% if task.finish_time %}
+                            <small>Finished: {{ task.finish_time }}</small><br>
+                            {% endif %}
+                            {% if task.ip %}
+                            <small>Executed on: {{ task.ip }}</small>
+                            {% endif %}
+                        </div>
+                        <div>
+                            <button class="btn btn-sm btn-info" onclick="viewStatus('{{ task.id }}')">View Status</button>
+                            {% if task.has_result %}
+                            <a class="btn btn-sm btn-success" href="/download_result/{{ task.id }}_result.zip" download>Download Result</a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p>No history found.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+<script>
+    $('#taskForm').on('submit', function(event) {
+        event.preventDefault();
+        var formData = new FormData(this);
+        $('button[type="submit"]').prop('disabled', true);
+
+        $.ajax({
+            url: '/start_task',
+            type: 'POST',
+            data: formData,
+            success: function(response) {
+                if (response.status === 'success') {
+                    $('#result').removeClass('alert-danger').addClass('alert-success').text(response.message).show();
+                    $('#taskStatusSection').show();
+                    checkTaskStatus(response.task_id);
+                } else {
+                    $('#result').removeClass('alert-success').addClass('alert-danger').text(response.message).show();
+                }
+                $('button[type="submit"]').prop('disabled', false);
+            },
+            error: function() {
+                $('#result').removeClass('alert-success').addClass('alert-danger').text('Failed to submit task.').show();
+                $('button[type="submit"]').prop('disabled', false);
+            },
+            cache: false,
+            contentType: false,
+            processData: false
+        });
+    });
+
+    function checkTaskStatus(taskId) {
+        var interval = setInterval(function () {
+            $.getJSON('/task_status/' + taskId, function (response) {
+                if (response.status === 'completed') {
+                    $('#taskStatus').html('<pre>' + response.log + '</pre>');
+                    if (response.result) {
+                        $('#downloadLink').attr('href', response.result).show();
+                    }
+                    clearInterval(interval);
+                }
+            }).fail(function (xhr) {
+                clearInterval(interval);
+                $('#taskStatus').html('<pre>Error fetching task status: ' + xhr.responseText + '</pre>');
+            });
+        }, 5000);
+    }
+
+    function viewStatus(taskId) {
+        $.getJSON('/task_status/' + taskId, function (response) {
+            if (response.status === 'completed') {
+                $('#taskStatusSection').show();
+                $('#taskStatus').html('<pre>' + response.log + '</pre>');
+                if (response.result) {
+                    $('#downloadLink').attr('href', response.result).show();
+                } else {
+                    $('#downloadLink').hide();
+                }
+                $('html, body').animate({scrollTop: $('#taskStatusSection').offset().top}, 'slow');
+            }
+        }).fail(function () {
+            alert('Failed to load task status');
+        });
+    }
+</script>
+</body>
+</html>
