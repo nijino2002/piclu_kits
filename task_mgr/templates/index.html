@@ -37,11 +37,13 @@
                 </div>
                 <div class="form-group">
                     <label for="task_type">Task Type</label>
-                    <input type="text" class="form-control" id="task_type" name="task_type" required placeholder="Enter Task Type">
+                    <input type="text" class="form-control" id="task_type" name="task_type" required />
                 </div>
                 <div class="form-group">
-                    <label for="dependency_id">Depends on Task ID (Optional)</label>
-                    <input type="text" class="form-control" id="dependency_id" name="dependency_id" placeholder="Previous Task ID">
+                    <label for="depends_on">Depends on Task ID (Optional)</label>
+                    <select id="depends_on" name="depends_on">
+                      <option value="">-- None --</option>
+                    </select>
                 </div>
                 <button type="submit" class="btn btn-primary btn-block">Submit Task</button>
             </form>
@@ -57,35 +59,37 @@
     </div>
 
     <div class="card">
-        <div class="card-header">Task History</div>
+        <div class="card-header">Task History (Grouped by Client IP)</div>
         <div class="card-body">
-            {% if tasks %}
-            <ul class="list-group">
-                {% for task in tasks %}
-                <li class="list-group-item">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <strong>Task ID:</strong> {{ task.id }}<br>
-                            {% if task.submit_time %}
-                            <small>Submitted: {{ task.submit_time }}</small><br>
-                            {% endif %}
-                            {% if task.finish_time %}
-                            <small>Finished: {{ task.finish_time }}</small><br>
-                            {% endif %}
-                            {% if task.ip %}
-                            <small>Executed on: {{ task.ip }}</small>
-                            {% endif %}
-                        </div>
-                        <div>
-                            <button class="btn btn-sm btn-info" onclick="viewStatus('{{ task.id }}')">View Status</button>
-                            {% if task.has_result %}
-                            <a class="btn btn-sm btn-success" href="/download_result/{{ task.id }}_result.zip" download>Download Result</a>
-                            {% endif %}
-                        </div>
-                    </div>
-                </li>
+            {% if ip_groups %}
+                {% for ip, task_list in ip_groups.items() %}
+                    <details style="margin-bottom: 10px;">
+                        <summary><strong>Client IP:</strong> {{ ip }} ({{ task_list|length }} tasks)</summary>
+                        <ul class="list-group mt-2">
+                            {% for task in task_list %}
+                            <li class="list-group-item">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>Task ID:</strong> {{ task.id }}<br>
+                                        {% if task.submit_time %}
+                                        <small>Submitted: {{ task.submit_time }}</small><br>
+                                        {% endif %}
+                                        {% if task.finish_time %}
+                                        <small>Finished: {{ task.finish_time }}</small><br>
+                                        {% endif %}
+                                    </div>
+                                    <div>
+                                        <button class="btn btn-sm btn-info" onclick="viewStatus('{{ task.id }}')">View Status</button>
+                                        {% if task.has_result %}
+                                        <a class="btn btn-sm btn-success" href="/download_result/{{ task.id }}_result.zip" download>Download Result</a>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </details>
                 {% endfor %}
-            </ul>
             {% else %}
             <p>No history found.</p>
             {% endif %}
@@ -158,6 +162,34 @@
             alert('Failed to load task status');
         });
     }
+
+    document.addEventListener("DOMContentLoaded", function() {
+    fetch("/list_result_tasks")
+        .then(response => response.json())
+        .then(data => {
+            const select = document.getElementById("depends_on");
+            data.forEach(taskId => {
+                const option = document.createElement("option");
+                option.value = taskId;
+                option.text = taskId;
+                select.appendChild(option);
+            });
+        })
+        .catch(error => console.error("Failed to load dependent tasks:", error));
+    });
+
+    document.getElementById("task_file").addEventListener("change", function () {
+        const file = this.files[0];
+        if (file) {
+            const filename = file.name;
+            const match = filename.match(/^(.+)_task\.zip$/);
+            if (match) {
+                document.getElementById("task_type").value = match[1];
+            } else {
+                console.warn("Filename does not follow <task_type>_task.zip pattern");
+            }
+        }
+    });
 </script>
 </body>
 </html>

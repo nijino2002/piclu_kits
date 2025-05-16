@@ -20,13 +20,13 @@ app = Flask(__name__)
 
 @app.route('/')
 def index():
-    tasks = []
+    ip_groups = {}
     for f in sorted(TASK_DIR.glob("*_status.txt")):
         task_id = f.name.replace("_status.txt", "")
         result_file = TASK_DIR / f"{task_id}_result.zip"
         submit_time = None
         finish_time = None
-        ip = None  # 新增
+        ip = "Unknown"
 
         with open(f, 'r') as sf:
             for line in sf:
@@ -34,17 +34,30 @@ def index():
                     submit_time = line.strip().split(":", 1)[1].strip()
                 elif line.startswith("Completed at:"):
                     finish_time = line.strip().split(":", 1)[1].strip()
-                elif line.startswith("Client IP:"):   # 解析IP
+                elif line.startswith("Client IP:"):
                     ip = line.strip().split(":", 1)[1].strip()
 
-        tasks.append({
+        task_info = {
             "id": task_id,
             "has_result": result_file.exists(),
             "submit_time": submit_time,
             "finish_time": finish_time,
-            "ip": ip,   # 传给模板
-        })
-    return render_template('index.html', tasks=tasks)
+        }
+
+        if ip not in ip_groups:
+            ip_groups[ip] = []
+        ip_groups[ip].append(task_info)
+
+    return render_template('index.html', ip_groups=ip_groups)
+
+@app.route("/list_result_tasks")
+def list_result_tasks():
+    task_ids = []
+    for filename in os.listdir(TASK_DIR):
+        if filename.endswith("_result.zip"):
+            task_id = filename[:-11]  # 去掉 _result.zip
+            task_ids.append(task_id)
+    return jsonify(task_ids)
 
 
 @app.route('/start_task', methods=['POST'])
