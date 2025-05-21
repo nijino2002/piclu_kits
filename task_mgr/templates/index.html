@@ -45,6 +45,10 @@
                       <option value="">-- None --</option>
                     </select>
                 </div>
+                <div class="form-group form-check">
+                    <input type="checkbox" class="form-check-input" id="use_docker" name="use_docker" checked>
+                    <label class="form-check-label" for="use_docker">Use Docker to execute the task</label>
+                </div>
                 <button type="submit" class="btn btn-primary btn-block">Submit Task</button>
             </form>
         </div>
@@ -76,6 +80,9 @@
                                         {% endif %}
                                         {% if task.finish_time %}
                                         <small>Finished: {{ task.finish_time }}</small><br>
+                                        {% endif %}
+                                        {% if task.use_docker is not none %}
+                                        <small>Executed with Docker: {{ 'Yes' if task.use_docker else 'No' }}</small><br>
                                         {% endif %}
                                     </div>
                                     <div>

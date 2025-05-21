@@ -7,6 +7,7 @@ import requests
 import shutil
 from pathlib import Path
 import logging
+import json
 
 TASK_ZIP_DIR = "/home/pi/tasks"
 WORK_BASE_DIR = "/home/pi/task_manager/work"
@@ -28,6 +29,15 @@ logger = logging.getLogger("client")
 
 def log(msg): logger.info(msg)
 
+def load_task_config(task_dir):
+    config_path = os.path.join(task_dir, "task_config.json")
+    try:
+        with open(config_path, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        log(f"Failed to load config: {e}. Defaulting to use_docker=True")
+        return {"use_docker": True}
+
 def upload_result(task_id, result_zip_path):
     try:
         with open(result_zip_path, "rb") as f:
@@ -36,6 +46,29 @@ def upload_result(task_id, result_zip_path):
             log(f"Upload response: {response.status_code} - {response.text}")
     except Exception as e:
         log(f"Failed to upload result: {e}")
+
+# Run native task without using container
+def run_native_task(task_id, task_dir):
+    log(f"Running task {task_id} natively")
+    try:
+        # 安装 requirements.txt
+        req_file = os.path.join(task_dir, "requirements.txt")
+        if os.path.exists(req_file):
+            log(f"Installing requirements for task {task_id}")
+            subprocess.run(["pip3", "install", "-r", req_file], check=False)
+
+        # 执行 main.py
+        main_file = os.path.join(task_dir, "main.py")
+        result = subprocess.run(
+            ["python3", main_file],
+            cwd=task_dir,
+            capture_output=True,
+            text=True
+        )
+        log(f"NATIVE STDOUT:\n{result.stdout}")
+        log(f"NATIVE STDERR:\n{result.stderr}")
+    except subprocess.CalledProcessError as e:
+        log(f"Error during native execution: {e}")
 
 def run_docker_task(task_id, task_dir):
     docker_image = f"task_image_{task_id}"
@@ -79,7 +112,11 @@ def process_task_zip(zip_path):
             log(f"Task {task_id} requires input data, but input/ is empty. Skipping task.")
             return
 
-        run_docker_task(task_id, str(work_dir))
+        config = load_task_config(str(work_dir))
+        if config.get("use_docker", True):
+            run_docker_task(task_id, str(work_dir))
+        else:
+            run_native_task(task_id, str(work_dir))
 
         output_dir = work_dir / "output"
         if not output_dir.exists() or not any(output_dir.iterdir()):

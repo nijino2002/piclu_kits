@@ -3,6 +3,7 @@ import os
 import shutil
 import tempfile
 import zipfile
+import json
 from example_tasks import sha256, aes_enc, aes_dec
 
 EXAMPLE_REQUIREMENTS = {
@@ -58,6 +59,7 @@ def main():
     parser.add_argument("-e", "--example", help="Example task name (sha256, aes_enc, aes_dec)")
     parser.add_argument("-d", "--deps", help="Dependency zip file (for aes_dec)")
     parser.add_argument("-o", "--output", required=True, help="Output zip file path")
+    parser.add_argument("--no-docker", action="store_true", help="Do not use Docker to run this task")
     args = parser.parse_args()
 
     if not args.example:
@@ -92,6 +94,12 @@ def main():
         reqs = EXAMPLE_REQUIREMENTS[args.example]
         write_requirements(task_dir, reqs)
         write_dockerfile(task_dir)
+
+        config = {
+            "use_docker": not args.no_docker
+        }
+        with open(os.path.join(task_dir, "task_config.json"), "w") as f:
+            json.dump(config, f, indent=2)
 
         # 打包
         make_task_zip(task_dir, args.output)

@@ -27,7 +27,8 @@ def index():
         submit_time = None
         finish_time = None
         ip = "Unknown"
-
+        use_docker = None
+        
         with open(f, 'r') as sf:
             for line in sf:
                 if line.startswith("Submitted at:"):
@@ -36,13 +37,17 @@ def index():
                     finish_time = line.strip().split(":", 1)[1].strip()
                 elif line.startswith("Client IP:"):
                     ip = line.strip().split(":", 1)[1].strip()
+                elif line.startswith("Use Docker:"):
+                    use_docker = line.strip().split(":", 1)[1].strip().lower() == "true"
 
         task_info = {
             "id": task_id,
             "has_result": result_file.exists(),
             "submit_time": submit_time,
             "finish_time": finish_time,
+            "use_docker": use_docker
         }
+
 
         if ip not in ip_groups:
             ip_groups[ip] = []
@@ -155,9 +160,34 @@ def upload_result(filename):
 
     task_id = filename.replace("_result.zip", "")
     status_file = os.path.join(TASK_DIR, f"{task_id}_status.txt")
+
+    # === 从 result.zip 里提取 use_docker 信息 ===
+    try:
+        import zipfile
+        import json
+        with zipfile.ZipFile(save_path, 'r') as zip_ref:
+            zip_ref.extractall(f"/tmp/{task_id}_result")  # 临时解压
+
+        # 尝试读取原任务包中的 config 文件
+        task_zip_path = os.path.join(TASK_DIR, f"{task_id}_task.zip")
+        if os.path.exists(task_zip_path):
+            with zipfile.ZipFile(task_zip_path, 'r') as zip_ref:
+                if "task_config.json" in zip_ref.namelist():
+                    with zip_ref.open("task_config.json") as f:
+                        config = json.load(f)
+                        use_docker = config.get("use_docker", True)
+                else:
+                    use_docker = True
+        else:
+            use_docker = True
+    except Exception as e:
+        logger.warning(f"Failed to parse use_docker config: {e}")
+        use_docker = True
+
     if os.path.exists(status_file):
         with open(status_file, 'a') as f:
             f.write(f"Completed at: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Use Docker: {use_docker}\n")
 
     logger.info(f"Received result: {filename}")
     return jsonify({'status': 'success', 'message': 'Result uploaded successfully'})

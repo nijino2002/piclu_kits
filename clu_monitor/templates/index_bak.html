@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Raspberry Pi Cluster Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <style>
+        .node-card {
+            display: inline-block;
+            width: 320px;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            margin: 10px;
+            padding: 10px;
+            background: #f9f9f9;
+            vertical-align: top;
+        }
+        .title {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h2>Raspberry Pi Cluster Monitor</h2>
+    <div id="dashboard"></div>
+
+    <script>
+    const socket = io();
+    const nodes = {};  // 保存节点状态与图表实例
+
+    function createPieOptionWithLabel(title, usedPercent, colorUsed, colorFree) {
+        return {
+            title: {
+                text: title,
+                left: 'center',
+                top: '25%',
+                textStyle: { fontSize: 14 }
+            },
+            series: [{
+                type: 'pie',
+                radius: ['65%', '90%'],
+                avoidLabelOverlap: false,
+                label: {
+                    show: true,
+                    position: 'center',
+                    formatter: `${usedPercent.toFixed(1)}%`,
+                    fontSize: 18,
+                    fontWeight: 'bold',
+                    color: colorUsed
+                },
+                labelLine: { show: false },
+                data: [
+                    { value: usedPercent, name: 'Used', itemStyle: { color: colorUsed } },
+                    { value: 100 - usedPercent, name: 'Free', itemStyle: { color: colorFree } }
+                ],
+                animation: true,
+                animationEasing: 'elasticOut',
+                animationDurationUpdate: 800
+            }]
+        };
+    }
+
+    function renderNode(node) {
+        const container = document.getElementById("dashboard");
+        if (!nodes[node.node]) {
+            // 新节点初始化
+            const card = document.createElement("div");
+            card.className = "node-card";
+            card.id = "card-" + node.node;
+            card.innerHTML = `<div class='title'>${node.node}</div>
+                <div>IP: <span id='ip-${node.node}'>${node.ip || "-"}</span></div>
+                <div>MAC: <span id='mac-${node.node}'>${node.mac || "-"}</span></div>
+                <div>CPU: <span id='cpu-${node.node}'>0</span>%</div>
+                <div>Memory: <span id='mem-${node.node}'>0</span>%</div>
+                <div>Net In: <span id='in-${node.node}'>0</span></div>
+                <div>Net Out: <span id='out-${node.node}'>0</span></div>
+                <div id='cpu-chart-${node.node}' style='width: 130px; height: 130px; display:inline-block;'></div>
+                <div id='mem-chart-${node.node}' style='width: 130px; height: 130px; display:inline-block;'></div>
+                <div id='bw-chart-${node.node}' style='width: 130px; height: 130px; display:inline-block;'></div>`;
+            container.appendChild(card);
+
+            const cpuChart = echarts.init(document.getElementById(`cpu-chart-${node.node}`));
+            const memChart = echarts.init(document.getElementById(`mem-chart-${node.node}`));
+            const bwChart = echarts.init(document.getElementById(`bw-chart-${node.node}`));
+
+            nodes[node.node] = { initialized: true, cpuChart, memChart, bwChart };
+        }
+
+        // 更新文本信息
+        if (node.ip) document.getElementById(`ip-${node.node}`).innerText = node.ip;
+        if (node.mac) document.getElementById(`mac-${node.node}`).innerText = node.mac;
+        document.getElementById(`cpu-${node.node}`).innerText = node.cpu;
+        document.getElementById(`mem-${node.node}`).innerText = node.memory;
+        document.getElementById(`in-${node.node}`).innerText = formatBytesDetailed(node.net_in);
+        document.getElementById(`out-${node.node}`).innerText = formatBytesDetailed(node.net_out);
+
+        // 更新 CPU 和内存图表
+        const { cpuChart, memChart } = nodes[node.node];
+        cpuChart.setOption(createPieOptionWithLabel("CPU", node.cpu, '#ff7f50', '#e0e0e0'));
+        memChart.setOption(createPieOptionWithLabel("Memory", node.memory, '#87cefa', '#e0e0e0'));
+
+        // 带宽计算和饼图更新
+        if (!nodes[node.node].lastNetStats) {
+            nodes[node.node].lastNetStats = {
+                net_in: node.net_in,
+                net_out: node.net_out,
+                timestamp: node.timestamp
+            };
+        } else {
+            const last = nodes[node.node].lastNetStats;
+            const delta_in = node.net_in - last.net_in;
+            const delta_out = node.net_out - last.net_out;
+            const delta_time = node.timestamp - last.timestamp;
+
+            if (delta_time <= 0) {
+                console.warn(`[WARN] Node ${node.node}: Invalid delta_time (${delta_time}), skipping bandwidth update.`);
+                return;
+            }
+
+            if (delta_in < 0 || delta_out < 0) {
+                console.warn(`[WARN] Node ${node.node}: net_in/net_out decreased (possible reset), resetting baseline.`);
+                nodes[node.node].lastNetStats = {
+                    net_in: node.net_in,
+                    net_out: node.net_out,
+                    timestamp: node.timestamp
+                };
+                return;
+            }
+
+            const total_bytes = (delta_in + delta_out) / delta_time;
+            const used_mbps = (total_bytes * 8) / 1e6;
+            const bandwidth_mbps = node.bandwidth_mbps || 100;
+            const used_percent = Math.min(100, (used_mbps / bandwidth_mbps) * 100);
+
+            console.log(`Node: ${node.node}, used_mbps: ${used_mbps.toFixed(2)} Mbps, bandwidth_mbps: ${bandwidth_mbps} Mbps, used_percent: ${used_percent.toFixed(2)}%`);
+
+            nodes[node.node].lastNetStats = {
+                net_in: node.net_in,
+                net_out: node.net_out,
+                timestamp: node.timestamp
+            };
+
+            const { bwChart } = nodes[node.node];
+            bwChart.setOption({
+                title: { text: 'Bandwidth', left: 'center', top: '25%', textStyle: { fontSize: 14 } },
+                series: [{
+                    type: 'pie',
+                    radius: ['65%', '90%'],
+                    avoidLabelOverlap: false,
+                    label: {
+                            show: true,
+                            position: 'center',
+                            formatter: `${used_percent.toFixed(1)}%`,
+                            fontSize: 18,
+                            fontWeight: 'bold',
+                            color: '#ff7f50'
+                        },
+                    labelLine: { show: false },
+                    data: [
+                        { value: used_percent, name: 'Used', itemStyle: { color: '#ffa500' } },
+                        { value: 100 - used_percent, name: 'Free', itemStyle: { color: '#e0e0e0' } }
+                    ],
+                    animation: true,
+                    animationEasing: 'elasticOut',
+                    animationDurationUpdate: 800
+                }]
+            });
+        }
+    }
+
+    function formatBytesDetailed(bytes) {
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let value = bytes;
+        let unitIndex = 0;
+
+        while (value >= 1000 && unitIndex < units.length - 1) {
+            value /= 1000;
+            unitIndex++;
+        }
+        return `${bytes} B (${value.toFixed(2)} ${units[unitIndex]})`;
+    }
+
+    socket.on("init", data => {
+        Object.values(data).forEach(renderNode);
+    });
+
+    socket.on("update", node => {
+        renderNode(node);
+    });
+    </script>
+
+</body>
+</html>
