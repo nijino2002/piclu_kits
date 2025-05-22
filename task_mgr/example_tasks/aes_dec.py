@@ -24,13 +24,14 @@ def generate(task_dir, dep_zip_path):
 
     # 写 main.py
     with open(os.path.join(task_dir, "main.py"), "w") as f:
-        f.write(textwrap.dedent("""\
-            import os
-            from Crypto.Cipher import AES
+    f.write(textwrap.dedent("""\
+        import os
+        from Crypto.Cipher import AES
 
-            def unpad(data):
-                return data[:-data[-1]]
+        def unpad(data):
+            return data[:-data[-1]]
 
+        def main():
             with open("input/key.bin", "rb") as f:
                 key = f.read()
             with open("input/enc_data.bin", "rb") as f:
@@ -45,4 +46,10 @@ def generate(task_dir, dep_zip_path):
             os.makedirs("output", exist_ok=True)
             with open("output/dec_data.bin", "wb") as f:
                 f.write(plaintext)
-        """))
+
+        if __name__ == "__main__":
+            try:
+                main()
+            except Exception as e:
+                print(f"[ERROR] Task failed: {e}")
+    """))

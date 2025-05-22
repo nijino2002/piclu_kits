@@ -21,27 +21,34 @@ def generate(task_dir):
         f.write(iv + encrypted)
 
     with open(os.path.join(task_dir, "main.py"), "w") as f:
-        f.write("""\
-import os
+    f.write("""\
+        import os
+        from Crypto.Cipher import AES
 
-from Crypto.Cipher import AES
+        def pad(data):
+            pad_len = 16 - len(data) % 16
+            return data + bytes([pad_len] * pad_len)
 
-def pad(data):
-    pad_len = 16 - len(data) % 16
-    return data + bytes([pad_len] * pad_len)
+        def main():
+            with open("input/data.bin", "rb") as f:
+                data = f.read()
+            with open("input/key.bin", "rb") as f:
+                key = f.read()
 
-with open("input/data.bin", "rb") as f:
-    data = f.read()
-with open("input/key.bin", "rb") as f:
-    key = f.read()
+            iv = os.urandom(16)
+            cipher = AES.new(key, AES.MODE_CBC, iv)
+            enc_data = cipher.encrypt(pad(data))
 
-iv = os.urandom(16)
-cipher = AES.new(key, AES.MODE_CBC, iv)
-enc_data = cipher.encrypt(pad(data))
+            os.makedirs("output", exist_ok=True)
+            with open("output/enc_data.bin", "wb") as f:
+                f.write(iv + enc_data)
+            with open("output/key.bin", "wb") as f:
+                f.write(key)
 
-os.makedirs("output", exist_ok=True)
-with open("output/enc_data.bin", "wb") as f:
-    f.write(iv + enc_data)
-with open("output/key.bin", "wb") as f:
-    f.write(key)
-""")
+        if __name__ == "__main__":
+            try:
+                main()
+            except Exception as e:
+                print(f"[ERROR] Task failed: {e}")
+        """)
+
