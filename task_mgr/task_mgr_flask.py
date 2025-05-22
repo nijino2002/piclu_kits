@@ -28,7 +28,8 @@ def index():
         finish_time = None
         ip = "Unknown"
         use_docker = None
-        
+        task_type = "Unknown"
+
         with open(f, 'r') as sf:
             for line in sf:
                 if line.startswith("Submitted at:"):
@@ -39,9 +40,12 @@ def index():
                     ip = line.strip().split(":", 1)[1].strip()
                 elif line.startswith("Use Docker:"):
                     use_docker = line.strip().split(":", 1)[1].strip().lower() == "true"
+                elif line.startswith("Task type:"):
+                    task_type = line.strip().split(":", 1)[1].strip()
 
         task_info = {
             "id": task_id,
+            "task_type": task_type,
             "has_result": result_file.exists(),
             "submit_time": submit_time,
             "finish_time": finish_time,

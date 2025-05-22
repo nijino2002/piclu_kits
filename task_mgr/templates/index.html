@@ -75,6 +75,9 @@
                                 <div class="d-flex justify-content-between align-items-center">
                                     <div>
                                         <strong>Task ID:</strong> {{ task.id }}<br>
+                                        {% if task.task_type %}
+                                        <small>Task type: {{ task.task_type }}</small><br>
+                                        {% endif %}
                                         {% if task.submit_time %}
                                         <small>Submitted: {{ task.submit_time }}</small><br>
                                         {% endif %}
