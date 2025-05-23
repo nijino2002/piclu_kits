@@ -22,9 +22,8 @@ def generate(task_dir, dep_zip_path):
         shutil.copy(key_path, os.path.join(task_dir, "input", "key.bin"))
         shutil.copy(enc_data_path, os.path.join(task_dir, "input", "enc_data.bin"))
 
-    # 写 main.py
-    with open(os.path.join(task_dir, "main.py"), "w") as f:
-    f.write(textwrap.dedent("""\
+    # 写 main.py，使用 main() 函数结构
+    main_code = textwrap.dedent("""\
         import os
         from Crypto.Cipher import AES
 
@@ -52,4 +51,7 @@ def generate(task_dir, dep_zip_path):
                 main()
             except Exception as e:
                 print(f"[ERROR] Task failed: {e}")
-    """))
+    """)
+
+    with open(os.path.join(task_dir, "main.py"), "w") as f:
+        f.write(main_code)

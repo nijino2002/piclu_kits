@@ -1,5 +1,6 @@
 import os
 import secrets
+import textwrap
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 
@@ -13,6 +14,9 @@ def generate(task_dir):
     padded_data = input_data + bytes([pad_len] * pad_len)
     encrypted = cipher.encrypt(padded_data)
 
+    os.makedirs(os.path.join(task_dir, "input"), exist_ok=True)
+    os.makedirs(os.path.join(task_dir, "output"), exist_ok=True)
+
     with open(os.path.join(task_dir, "input", "data.bin"), "wb") as f:
         f.write(input_data)
     with open(os.path.join(task_dir, "input", "key.bin"), "wb") as f:
@@ -20,8 +24,7 @@ def generate(task_dir):
     with open(os.path.join(task_dir, "input", "enc_data.bin"), "wb") as f:
         f.write(iv + encrypted)
 
-    with open(os.path.join(task_dir, "main.py"), "w") as f:
-    f.write("""\
+    main_py_code = textwrap.dedent("""\
         import os
         from Crypto.Cipher import AES
 
@@ -50,5 +53,7 @@ def generate(task_dir):
                 main()
             except Exception as e:
                 print(f"[ERROR] Task failed: {e}")
-        """)
+    """)
 
+    with open(os.path.join(task_dir, "main.py"), "w") as f:
+        f.write(main_py_code)
