@@ -75,6 +75,7 @@
                             <li class="list-group-item">
                                 <div class="d-flex justify-content-between align-items-center">
                                     <div>
+                                        <small id="status_{{ task.id }}"><i class="fa fa-circle-notch fa-spin text-muted"></i> Status: loading...</small><br>
                                         <i class="fa-solid fa-gears">&nbsp;&nbsp;</i><strong>Task ID:</strong> {{ task.id }}<br>
                                         {% if task.task_type %}
                                         <small>Task type: {{ task.task_type }}</small><br>
@@ -141,34 +142,37 @@
     });
 
     function checkTaskStatus(taskId) {
-        var interval = setInterval(function () {
+        const interval = setInterval(function () {
             $.getJSON('/task_status/' + taskId, function (response) {
-                if (response.status === 'completed') {
-                    $('#taskStatus').html('<pre>' + response.log + '</pre>');
-                    if (response.result) {
-                        $('#downloadLink').attr('href', response.result).show();
-                    }
+                const status = response.status;
+                $('#taskStatusSection').show();
+                $('#taskStatus').html('<pre>Status: ' + status + '</pre>');
+
+                if (status === 'success' || status === 'failed') {
+                    $('#downloadLink').attr('href', '/download_result/' + taskId + '_result.zip').show();
                     clearInterval(interval);
+                } else {
+                    $('#downloadLink').hide();
                 }
             }).fail(function (xhr) {
                 clearInterval(interval);
                 $('#taskStatus').html('<pre>Error fetching task status: ' + xhr.responseText + '</pre>');
             });
-        }, 5000);
+        }, 1000);
     }
 
     function viewStatus(taskId) {
         $.getJSON('/task_status/' + taskId, function (response) {
-            if (response.status === 'completed') {
-                $('#taskStatusSection').show();
-                $('#taskStatus').html('<pre>' + response.log + '</pre>');
-                if (response.result) {
-                    $('#downloadLink').attr('href', response.result).show();
-                } else {
-                    $('#downloadLink').hide();
-                }
-                $('html, body').animate({scrollTop: $('#taskStatusSection').offset().top}, 'slow');
+            const status = response.status;
+            $('#taskStatusSection').show();
+            $('#taskStatus').html('<pre>Status: ' + status + '</pre>');
+
+            if (status === 'success') {
+                $('#downloadLink').attr('href', '/download_result/' + taskId + '_result.zip').show();
+            } else {
+                $('#downloadLink').hide();
             }
+            $('html, body').animate({ scrollTop: $('#taskStatusSection').offset().top }, 'slow');
         }).fail(function () {
             alert('Failed to load task status');
         });
@@ -187,6 +191,30 @@
             });
         })
         .catch(error => console.error("Failed to load dependent tasks:", error));
+
+        document.querySelectorAll('[id^="status_"]').forEach(el => {
+            const taskId = el.id.replace("status_", "");
+            fetch('/task_status/' + taskId)
+                .then(resp => resp.json())
+                .then(data => {
+                    let color = "secondary";
+                    let icon = "fa-circle-question";
+                    if (data.status === "running") {
+                        color = "info";
+                        icon = "fa-spinner fa-spin";
+                    } else if (data.status === "success") {
+                        color = "success";
+                        icon = "fa-check-circle";
+                    } else if (data.status === "failed") {
+                        color = "danger";
+                        icon = "fa-times-circle";
+                    }
+                    el.innerHTML = `<i class="fa ${icon} text-${color}"></i> Status: ${data.status}`;
+                })
+                .catch(() => {
+                    el.innerHTML = `<i class="fa fa-exclamation-circle text-warning"></i> Status: unknown`;
+                });
+        });
     });
 
     document.getElementById("task_file").addEventListener("change", function () {

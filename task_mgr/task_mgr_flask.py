@@ -7,6 +7,7 @@ from flask import Flask, render_template, request, jsonify, send_from_directory
 import paramiko
 from werkzeug.utils import secure_filename
 from zipfile import ZipFile
+from threading import Lock
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger()
@@ -17,6 +18,8 @@ TASK_DIR = Path("/home/pi/task_manager/tasks") if os.path.exists("/home/pi") els
 os.makedirs(TASK_DIR, exist_ok=True)
 
 app = Flask(__name__)
+task_status_map = {}     # task_id -> status
+status_lock = Lock()     # 多线程并发写保护
 
 @app.route('/')
 def index():
@@ -155,6 +158,25 @@ def task_status(task_id):
     result_url = f"/download_result/{task_id}_result.zip" if os.path.exists(result_zip) else None
 
     return jsonify({'status': 'completed', 'log': content, 'result': result_url})
+
+@app.route("/task_status/<task_id>", methods=["GET"])
+def get_task_status(task_id):
+    with status_lock:
+        status = task_status_map.get(task_id, "unknown")
+    return jsonify({"task_id": task_id, "status": status})
+
+@app.route("/report_status/<task_id>", methods=["POST"])
+def report_status(task_id):
+    data = request.get_json()
+    status = data.get("status")
+
+    if status not in ("running", "success", "failed"):
+        return jsonify({"error": "Invalid status"}), 400
+
+    with status_lock:
+        task_status_map[task_id] = status
+    app.logger.info(f"[STATUS] Task {task_id} reported status: {status}")
+    return jsonify({"message": "Status updated"}), 200
 
 @app.route('/upload_result/<filename>', methods=['POST'])
 def upload_result(filename):

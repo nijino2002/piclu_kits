@@ -88,6 +88,12 @@ def run_docker_task(task_id, task_dir):
     except subprocess.CalledProcessError as e:
         log(f"Error during Docker build/run: {e}")
 
+def report_status(task_id, status):
+    try:
+        response = requests.post(f"{SERVER_URL}/report_status/{task_id}", json={"status": status})
+        log(f"Reported status '{status}' for task {task_id}: {response.status_code}")
+    except Exception as e:
+        log(f"Failed to report status '{status}' for task {task_id}: {e}")
 
 def process_task_zip(zip_path):
     task_file = Path(zip_path)
@@ -99,6 +105,7 @@ def process_task_zip(zip_path):
     result_zip = Path(RESULT_DIR) / f"{task_id}_result.zip"
 
     log(f"Processing task: {task_id}")
+    report_status(task_id, "running")  # 🆕 上报运行状态
 
     try:
         os.makedirs(work_dir, exist_ok=True)
@@ -106,10 +113,10 @@ def process_task_zip(zip_path):
             zip_ref.extractall(work_dir)
         log(f"Extracted task zip to {work_dir}")
 
-        # 检查 input/ 是否存在且为空
         input_dir = work_dir / "input"
         if input_dir.exists() and not any(input_dir.iterdir()):
             log(f"Task {task_id} requires input data, but input/ is empty. Skipping task.")
+            report_status(task_id, "failed")  # 🆕
             return
 
         config = load_task_config(str(work_dir))
@@ -121,19 +128,22 @@ def process_task_zip(zip_path):
         output_dir = work_dir / "output"
         if not output_dir.exists() or not any(output_dir.iterdir()):
             log(f"No output directory or files found for task {task_id}, skipping packaging.")
+            report_status(task_id, "failed")  # 🆕
             return
 
         shutil.make_archive(str(result_zip).replace(".zip", ""), "zip", root_dir=output_dir)
         log(f"Packaged result to {result_zip}")
         upload_result(task_id, result_zip)
+        report_status(task_id, "success")  # 🆕 成功上报
 
     except Exception as e:
         log(f"Exception while processing task {task_id}: {e}")
+        report_status(task_id, "failed")  # 🆕 失败上报
+
     finally:
         task_file.unlink(missing_ok=True)
         shutil.rmtree(work_dir, ignore_errors=True)
         log(f"Cleaned up task {task_id}")
-
 
 def main():
     log("Client started.")
