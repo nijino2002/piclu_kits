@@ -22,6 +22,9 @@ from flask_socketio import SocketIO, emit
 from threading import Lock
 import json
 
+SERVER_PORT = 5005      # Listen port
+SERVER_IP = "0.0.0.0"   # Listen IP
+
 app = Flask(__name__)
 # 指定 async_mode='eventlet'，确保异步支持正常
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
@@ -63,4 +66,4 @@ def handle_metrics(msg):
 if __name__ == "__main__":
     print("[INFO] Starting monitoring server on http://0.0.0.0:5000")
     # 启用 debug 模式，方便调试
-    socketio.run(app, host="0.0.0.0", port=5000, debug=True)
+    socketio.run(app, host=SERVER_IP, port=SERVER_PORT, debug=True)

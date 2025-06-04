@@ -7,7 +7,7 @@ import uuid
 
 # Server 配置
 SERVER_IP = "192.168.12.127"
-SERVER_PORT = 5000
+SERVER_PORT = 5005
 SERVER_URL = f"http://{SERVER_IP}:{SERVER_PORT}"
 
 # 自动安装依赖
