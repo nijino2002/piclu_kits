@@ -1,26 +1,45 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Dashboard</title>
   <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <style>
     body, html { height: 100%; margin: 0; }
     .wrapper { display: flex; height: 100vh; }
     .sidebar {
-      width: 220px;
+      width: 240px;
       background-color: #343a40;
       color: white;
-      padding-top: 20px;
+      display: flex;
+      flex-direction: column;
     }
-    .sidebar a {
+    .logo {
+      font-size: 1.5rem;
+      padding: 20px;
+      text-align: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .logo i {
+      margin-right: 10px;
+    }
+    .menu {
+      flex-grow: 1;
+      overflow-y: auto;
+    }
+    .menu a {
       color: white;
       display: block;
-      padding: 10px 20px;
+      padding: 12px 20px;
       text-decoration: none;
+      transition: background-color 0.2s;
     }
-    .sidebar a:hover {
+    .menu a i {
+      margin-right: 10px;
+    }
+    .menu a:hover, .menu a.active {
       background-color: #495057;
     }
     .content {
@@ -37,19 +56,47 @@
 <body>
 <div class="wrapper">
   <div class="sidebar">
-    <h4 class="text-center">控制面板</h4>
-    <a href="#" onclick="loadPage('http://127.0.0.1:5005')">状态监控</a>
-    <a href="#" onclick="loadPage('http://127.0.0.1:5000')">任务管理</a>
+    <div class="logo" id="logo"></div>
+    <div class="menu" id="menu"></div>
   </div>
   <div class="content">
-    <iframe id="mainFrame" src="http://127.0.0.1:5005"></iframe>
+    <iframe id="mainFrame" src=""></iframe>
   </div>
 </div>
 
 <script>
-  function loadPage(page) {
-    document.getElementById('mainFrame').src = page;
-  }
+  fetch('config.json')
+    .then(res => res.json())
+    .then(config => {
+      const logo = document.getElementById('logo');
+      if (config.logo) {
+        logo.innerHTML = `<i class="${config.logo.icon}"></i>${config.logo.text}`;
+      }
+
+      const menu = document.getElementById('menu');
+      const iframe = document.getElementById('mainFrame');
+
+      config.pages.forEach((page, index) => {
+        const link = document.createElement('a');
+        link.innerHTML = `<i class="${page.icon}"></i>${page.name}`;
+        link.onclick = function () {
+          iframe.src = page.src;
+          document.querySelectorAll('.menu a').forEach(a => a.classList.remove('active'));
+          link.classList.add('active');
+        };
+        menu.appendChild(link);
+
+        // 默认加载第一个页面
+        if (index === 0) {
+          iframe.src = page.src;
+          link.classList.add('active');
+        }
+      });
+    })
+    .catch(err => {
+      console.error('Failed to load config.json:', err);
+      document.getElementById('mainFrame').srcdoc = '<p style="color:red;">无法加载配置文件</p>';
+    });
 </script>
 </body>
 </html>
