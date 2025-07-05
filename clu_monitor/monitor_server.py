@@ -27,13 +27,17 @@ SERVER_IP = "0.0.0.0"   # Listen IP
 
 app = Flask(__name__)
 # 指定 async_mode='eventlet'，确保异步支持正常
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet', path="/pi_monitor/socket.io")
 data_lock = Lock()
 latest_metrics = {}
 
 @app.route("/")
 def index():
     return render_template("index.html")
+
+@app.route("/pi_monitor/")
+def pi_monitor():
+    return index()
 
 @socketio.on('connect')
 def handle_connect():
@@ -64,6 +68,6 @@ def handle_metrics(msg):
         print("[ERROR] Invalid data received:", e)
 
 if __name__ == "__main__":
-    print("[INFO] Starting monitoring server on http://0.0.0.0:5000")
+    print("[INFO] Starting monitoring server on http://0.0.0.0:5005")
     # 启用 debug 模式，方便调试
     socketio.run(app, host=SERVER_IP, port=SERVER_PORT, debug=True)

@@ -6,12 +6,12 @@
   "pages": [
     {
       "name": "状态监控",
-      "src": "http://127.0.0.1:5005",
+      "src": "/pi_monitor/",
       "icon": "fa-solid fa-desktop"
     },
     {
       "name": "任务管理",
-      "src": "http://127.0.0.1:5000",
+      "src": "/pi_task/",
       "icon": "fa-solid fa-tasks"
     }
   ]

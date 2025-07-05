@@ -6,7 +6,7 @@ import sys
 import uuid
 
 # Server 配置
-SERVER_IP = "192.168.12.127"
+SERVER_IP = "192.168.12.201"
 SERVER_PORT = 5005
 SERVER_URL = f"http://{SERVER_IP}:{SERVER_PORT}"
 
@@ -132,7 +132,7 @@ def main():
         try:
             if not sio.connected:
                 print(f"[INFO] Connecting to {SERVER_URL} ...")
-                sio.connect(SERVER_URL)
+                sio.connect(SERVER_URL, socketio_path="/pi_monitor/socket.io/")
 
             while sio.connected:
                 metrics = collect_metrics()
