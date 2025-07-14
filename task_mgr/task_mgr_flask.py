@@ -8,6 +8,7 @@ import paramiko
 from werkzeug.utils import secure_filename
 from zipfile import ZipFile
 from threading import Lock
+from subprocess import run, CalledProcessError
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger()
@@ -17,11 +18,17 @@ home_dir = Path.home()
 TASK_DIR = Path("/home/pi/task_manager/tasks") if os.path.exists("/home/pi") else home_dir / "task_manager" / "tasks"
 os.makedirs(TASK_DIR, exist_ok=True)
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # 当前脚本目录
+
+
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # Max file size: 1GB
 task_status_map = {}     # task_id -> status
 status_lock = Lock()     # 多线程并发写保护
 
-@app.route('/')
+API_BASE = "/pi_task"
+
+@app.route(API_BASE + '/')
 def index():
     ip_groups = {}
     for f in sorted(TASK_DIR.glob("*_status.txt")):
@@ -62,7 +69,140 @@ def index():
 
     return render_template('index.html', ip_groups=ip_groups)
 
-@app.route("/list_result_tasks")
+@app.route(API_BASE + '/build_task', methods=['POST'])
+def build_task():
+    app.logger.info(f"Request headers: {dict(request.headers)}")
+    app.logger.info(f"Request form keys: {list(request.form.keys())}")
+    app.logger.info(f"Request files keys: {list(request.files.keys())}")
+    try:
+        task_mode = request.form.get("task_mode")
+        import tempfile
+        from subprocess import run
+
+        app.logger.info(f"Received task_mode: {task_mode}")
+
+        # 打印所有的表单数据
+        for key, value in request.form.items():
+            app.logger.info(f"Form data - {key}: {value}")
+
+        # 打印上传的文件信息
+        for file in request.files.values():
+            app.logger.info(f"Received file - {file.filename}")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            build_dir = Path(tmpdir)
+
+            # 统一创建输出目录
+            output_dir = build_dir / "output"
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            if task_mode == "example":
+                example_task = request.form.get("example_task")
+                if not example_task:
+                    return "缺少 example_task 参数", 400
+
+                # 定义输出 zip 路径
+                output_zip_path = output_dir / f"{example_task}_example_task.zip"
+
+                if example_task == "aes_dec":
+                    dep_zip = request.files.get("dep_zip")
+                    if not dep_zip:
+                        return "缺少依赖 ZIP", 400
+                    dep_zip_path = build_dir / "dep.zip"
+                    dep_zip.save(dep_zip_path)
+
+                    cmd = [
+                        f"{BASE_DIR}/myvenv/bin/python3",
+                        f"{BASE_DIR}/build_task.py",
+                        "-e", example_task,
+                        "-d", str(dep_zip_path),
+                        "-o", str(output_zip_path)
+                    ]
+                else:
+                    cmd = [
+                        f"{BASE_DIR}/myvenv/bin/python3",
+                        f"{BASE_DIR}/build_task.py",
+                        "-e", example_task,
+                        "-o", str(output_zip_path)
+                    ]
+
+                result = run(cmd, cwd=build_dir, capture_output=True)
+                if result.returncode != 0:
+                    app.logger.error(f"Build_task.py failed:\nSTDOUT:\n{result.stdout.decode()}\nSTDERR:\n{result.stderr.decode()}")
+                    return f"Build failed: {result.stderr.decode()}", 400
+
+                zip_path = output_zip_path
+
+            elif task_mode == "custom":
+                task_name = request.form.get("custom_task_name")
+                code_zip = request.files.get("code_zip")
+                input_zip = request.files.get("input_zip")
+                use_docker = request.form.get("use_docker") == "on"
+
+                if not task_name or not code_zip:
+                    return "Missing required fields", 400
+
+                code_dir = build_dir / "code"
+                input_dir = build_dir / "input"
+
+                if code_dir.exists():
+                    shutil.rmtree(code_dir)
+                code_dir.mkdir(parents=True, exist_ok=True)
+
+                # 保存并解压代码 zip
+                code_zip_path = build_dir / "code.zip"
+                code_zip.save(code_zip_path)
+                with zipfile.ZipFile(code_zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(code_dir)
+
+                # 处理输入 zip
+                if input_zip:
+                    if input_dir.exists():
+                        shutil.rmtree(input_dir)
+                    input_dir.mkdir(parents=True, exist_ok=True)
+                    input_zip_path = build_dir / "input.zip"
+                    input_zip.save(input_zip_path)
+                    with zipfile.ZipFile(input_zip_path, 'r') as zip_ref:
+                        zip_ref.extractall(input_dir)
+                else:
+                    input_dir = None
+
+                output_zip_path = output_dir / f"{task_name}_user_task.zip"
+
+                cmd = [
+                    f"{BASE_DIR}/myvenv/bin/python3",
+                    f"{BASE_DIR}/build_task.py",
+                    "-i", str(code_dir),
+                    "-o", str(output_zip_path),
+                ]
+
+                if input_dir:
+                    cmd.extend(["-d", str(input_dir)])
+
+                if not use_docker:
+                    cmd.append("--no-docker")
+
+                result = run(cmd, cwd=build_dir, capture_output=True)
+                if result.returncode != 0:
+                    app.logger.error(f"Build_task.py failed:\nSTDOUT:\n{result.stdout.decode()}\nSTDERR:\n{result.stderr.decode()}")
+                    return f"Build failed: {result.stderr.decode()}", 400
+
+                zip_path = output_zip_path
+
+            else:
+                return "Invalid task mode", 400
+
+            if not zip_path.exists():
+                return "Built zip not found", 500
+
+            return send_from_directory(zip_path.parent, zip_path.name, as_attachment=True)
+
+    except Exception:
+        import traceback
+        app.logger.error(traceback.format_exc())
+        return "Internal Server Error", 500
+
+@app.route(API_BASE + "/list_result_tasks")
 def list_result_tasks():
     task_ids = []
     for filename in os.listdir(TASK_DIR):
@@ -72,7 +212,7 @@ def list_result_tasks():
     return jsonify(task_ids)
 
 
-@app.route('/start_task', methods=['POST'])
+@app.route(API_BASE + '/start_task', methods=['POST'])
 def start_task():
     try:
         ip = request.form['ip']
@@ -144,7 +284,7 @@ def distribute_task(ip, task_path, remote_name):
         logger.exception("SSH upload failed")
         return f"Failed to send task to {ip}: {str(e)}"
 
-@app.route('/task_status/<task_id>')
+@app.route(API_BASE + '/task_status/<task_id>')
 def task_status(task_id):
     status_file = os.path.join(TASK_DIR, f"{task_id}_status.txt")
     result_zip = os.path.join(TASK_DIR, f"{task_id}_result.zip")
@@ -159,13 +299,13 @@ def task_status(task_id):
 
     return jsonify({'status': 'completed', 'log': content, 'result': result_url})
 
-@app.route("/task_status/<task_id>", methods=["GET"])
+@app.route(API_BASE + "/task_status/<task_id>", methods=["GET"])
 def get_task_status(task_id):
     with status_lock:
         status = task_status_map.get(task_id, "unknown")
     return jsonify({"task_id": task_id, "status": status})
 
-@app.route("/report_status/<task_id>", methods=["POST"])
+@app.route(API_BASE + "/report_status/<task_id>", methods=["POST"])
 def report_status(task_id):
     data = request.get_json()
     status = data.get("status")
@@ -178,7 +318,7 @@ def report_status(task_id):
     app.logger.info(f"[STATUS] Task {task_id} reported status: {status}")
     return jsonify({"message": "Status updated"}), 200
 
-@app.route('/upload_result/<filename>', methods=['POST'])
+@app.route(API_BASE + '/upload_result/<filename>', methods=['POST'])
 def upload_result(filename):
     file = request.files['file']
     save_path = os.path.join(TASK_DIR, filename)
@@ -218,7 +358,7 @@ def upload_result(filename):
     logger.info(f"Received result: {filename}")
     return jsonify({'status': 'success', 'message': 'Result uploaded successfully'})
 
-@app.route('/download_result/<filename>')
+@app.route(API_BASE + '/download_result/<filename>')
 def download_result(filename):
     return send_from_directory(TASK_DIR, filename)
 

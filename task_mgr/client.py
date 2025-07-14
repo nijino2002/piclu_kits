@@ -1,4 +1,3 @@
-# client.py
 import os
 import time
 import zipfile
@@ -8,18 +7,19 @@ import shutil
 from pathlib import Path
 import logging
 import json
+import shutil as sh
 
 TASK_ZIP_DIR = "/home/pi/tasks"
 WORK_BASE_DIR = "/home/pi/task_manager/work"
 RESULT_DIR = "/home/pi/task_manager/results"
 LOG_FILE_PATH = "/home/pi/task_manager/client.log"
-SERVER_URL = "http://192.168.12.127:5000"  # 管理端地址
+SERVER_URL = "http://192.168.12.201:5000"
+API_BASE = "/pi_task"
 
 os.makedirs(TASK_ZIP_DIR, exist_ok=True)
 os.makedirs(WORK_BASE_DIR, exist_ok=True)
 os.makedirs(RESULT_DIR, exist_ok=True)
 
-# === 日志 ===
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s: %(message)s",
@@ -27,7 +27,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("client")
 
-def log(msg): logger.info(msg)
+def log(msg):
+    logger.info(msg)
 
 def load_task_config(task_dir):
     config_path = os.path.join(task_dir, "task_config.json")
@@ -42,22 +43,19 @@ def upload_result(task_id, result_zip_path):
     try:
         with open(result_zip_path, "rb") as f:
             files = {"file": f}
-            response = requests.post(f"{SERVER_URL}/upload_result/{task_id}_result.zip", files=files)
+            response = requests.post(f"{SERVER_URL}{API_BASE}/upload_result/{task_id}_result.zip", files=files)
             log(f"Upload response: {response.status_code} - {response.text}")
     except Exception as e:
         log(f"Failed to upload result: {e}")
 
-# Run native task without using container
 def run_native_task(task_id, task_dir):
     log(f"Running task {task_id} natively")
     try:
-        # 安装 requirements.txt
         req_file = os.path.join(task_dir, "requirements.txt")
         if os.path.exists(req_file):
             log(f"Installing requirements for task {task_id}")
             subprocess.run(["pip3", "install", "-r", req_file], check=False)
 
-        # 执行 main.py
         main_file = os.path.join(task_dir, "main.py")
         result = subprocess.run(
             ["python3", main_file],
@@ -71,14 +69,19 @@ def run_native_task(task_id, task_dir):
         log(f"Error during native execution: {e}")
 
 def run_docker_task(task_id, task_dir):
+    docker_cmd = "/usr/bin/docker"  # ← 直接指定绝对路径
+    if not os.path.exists(docker_cmd):
+        log(f"Docker command not found at {docker_cmd}")
+        return
+
     docker_image = f"task_image_{task_id}"
     try:
-        log(f"Building Docker image for task {task_id}")
-        subprocess.run(["docker", "build", "-t", docker_image, "."], cwd=task_dir, check=True)
+        log(f"Building Docker image for task {task_id} using {docker_cmd}")
+        subprocess.run([docker_cmd, "build", "-t", docker_image, "."], cwd=task_dir, check=True)
 
         log(f"Running Docker container for task {task_id}")
         result = subprocess.run(
-            ["docker", "run", "--rm", "-v", f"{task_dir}:/task", docker_image],
+            [docker_cmd, "run", "--rm", "-v", f"{task_dir}:/task", docker_image],
             cwd=task_dir,
             capture_output=True,
             text=True
@@ -88,12 +91,6 @@ def run_docker_task(task_id, task_dir):
     except subprocess.CalledProcessError as e:
         log(f"Error during Docker build/run: {e}")
 
-def report_status(task_id, status):
-    try:
-        response = requests.post(f"{SERVER_URL}/report_status/{task_id}", json={"status": status})
-        log(f"Reported status '{status}' for task {task_id}: {response.status_code}")
-    except Exception as e:
-        log(f"Failed to report status '{status}' for task {task_id}: {e}")
 
 def process_task_zip(zip_path):
     task_file = Path(zip_path)
@@ -105,7 +102,6 @@ def process_task_zip(zip_path):
     result_zip = Path(RESULT_DIR) / f"{task_id}_result.zip"
 
     log(f"Processing task: {task_id}")
-    report_status(task_id, "running")  # 🆕 上报运行状态
 
     try:
         os.makedirs(work_dir, exist_ok=True)
@@ -116,7 +112,6 @@ def process_task_zip(zip_path):
         input_dir = work_dir / "input"
         if input_dir.exists() and not any(input_dir.iterdir()):
             log(f"Task {task_id} requires input data, but input/ is empty. Skipping task.")
-            report_status(task_id, "failed")  # 🆕
             return
 
         config = load_task_config(str(work_dir))
@@ -128,24 +123,21 @@ def process_task_zip(zip_path):
         output_dir = work_dir / "output"
         if not output_dir.exists() or not any(output_dir.iterdir()):
             log(f"No output directory or files found for task {task_id}, skipping packaging.")
-            report_status(task_id, "failed")  # 🆕
             return
 
         shutil.make_archive(str(result_zip).replace(".zip", ""), "zip", root_dir=output_dir)
         log(f"Packaged result to {result_zip}")
         upload_result(task_id, result_zip)
-        report_status(task_id, "success")  # 🆕 成功上报
 
     except Exception as e:
         log(f"Exception while processing task {task_id}: {e}")
-        report_status(task_id, "failed")  # 🆕 失败上报
-
     finally:
         task_file.unlink(missing_ok=True)
         shutil.rmtree(work_dir, ignore_errors=True)
         log(f"Cleaned up task {task_id}")
 
 def main():
+    log(f"Environment PATH: {os.environ.get('PATH')}")
     log("Client started.")
     while True:
         try:
@@ -158,4 +150,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
