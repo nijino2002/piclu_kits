@@ -9,6 +9,8 @@ from werkzeug.utils import secure_filename
 from zipfile import ZipFile
 from threading import Lock
 from subprocess import run, CalledProcessError
+import json
+import redis
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger()
@@ -20,6 +22,13 @@ os.makedirs(TASK_DIR, exist_ok=True)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # 当前脚本目录
 
+# Redis 配置
+REDIS_HOST = "127.0.0.1"   # Redis 跑在主节点
+REDIS_PORT = 6379
+TASK_QUEUE_HIGH = "pi_task_high"      # 高优先级队列
+TASK_QUEUE_NORMAL = "pi_task_normal"  # 普通优先级队列
+
+rds = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0)
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # Max file size: 1GB
@@ -220,6 +229,11 @@ def start_task():
         task_type = request.form['task_type']
         dependency_id = request.form.get('dependency_id', '').strip()
 
+        #从表单取优先级，没有就默认 normal
+        priority = request.form.get("priority", "normal").lower()
+        if priority not in ("high", "normal"):
+            priority = "normal"
+
         timestamp = str(int(time.time()))
         filename = secure_filename(task_file.filename)
         task_id = timestamp
@@ -240,6 +254,7 @@ def start_task():
                     os.makedirs(task_unzip_path, exist_ok=True)
                     with ZipFile(saved_zip_path, 'r') as task_zip:
                         task_zip.extractall(task_unzip_path)
+                    # 把依赖任务的 output 注入到新任务的 input 里
                     shutil.copytree(os.path.join(tmpdir, "input"), os.path.join(task_unzip_path, "input"), dirs_exist_ok=True)
                     with ZipFile(saved_zip_path, 'w') as final_zip:
                         for root, dirs, files in os.walk(task_unzip_path):
@@ -257,32 +272,51 @@ def start_task():
             f.write(f"Submitted at: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"Client IP: {ip}\n")
             f.write(f"Task type: {task_type}\n")
+            f.write(f"Priority: {priority}\n") 
             if dependency_id:
                 f.write(f"Depends on: {dependency_id}\n")
+            f.write(f"Current status: queued\n")
 
-        result = distribute_task(ip, saved_zip_path, saved_zip_name)
+        #result = distribute_task(ip, saved_zip_path, saved_zip_name)
+        # 不再分发task，而是写入 Redis 队列
+        task_message = {
+            "task_id": task_id,
+            "task_zip": saved_zip_name,
+            "task_type": task_type,
+            "priority": priority,
+        }
+        if priority == "high":
+            queue_name = TASK_QUEUE_HIGH
+        else:
+            queue_name = TASK_QUEUE_NORMAL
+        rds.rpush(queue_name, json.dumps(task_message))
+        logger.info(f"Pushed task {task_id} into Redis queue {queue_name}")
+        return jsonify({'status': 'success',
+                        'message': 'Task queued, waiting for worker to pick it up',
+                        'task_id': task_id})
 
-        return jsonify({'status': 'success', 'message': result, 'task_id': task_id})
+        
     except Exception as e:
         logger.exception("Failed to start task")
         return jsonify({'status': 'error', 'message': str(e)})
 
-def distribute_task(ip, task_path, remote_name):
-    try:
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh.connect(ip, username='pi', password='111111')
+# 这个函数暂时保留但不用了
+# def distribute_task(ip, task_path, remote_name):
+#     try:
+#         ssh = paramiko.SSHClient()
+#         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+#         ssh.connect(ip, username='pi', password='111111')
 
-        sftp = ssh.open_sftp()
-        sftp.put(task_path, f'/home/pi/tasks/{remote_name}')
-        sftp.close()
-        ssh.close()
+#         sftp = ssh.open_sftp()
+#         sftp.put(task_path, f'/home/pi/tasks/{remote_name}')
+#         sftp.close()
+#         ssh.close()
 
-        logger.info(f"Task sent to {ip}")
-        return f"Task sent to {ip}, waiting for execution"
-    except Exception as e:
-        logger.exception("SSH upload failed")
-        return f"Failed to send task to {ip}: {str(e)}"
+#         logger.info(f"Task sent to {ip}")
+#         return f"Task sent to {ip}, waiting for execution"
+#     except Exception as e:
+#         logger.exception("SSH upload failed")
+#         return f"Failed to send task to {ip}: {str(e)}"
 
 @app.route(API_BASE + '/task_status/<task_id>')
 def task_status(task_id):
@@ -298,12 +332,6 @@ def task_status(task_id):
     result_url = f"/download_result/{task_id}_result.zip" if os.path.exists(result_zip) else None
 
     return jsonify({'status': 'completed', 'log': content, 'result': result_url})
-
-@app.route(API_BASE + "/task_status/<task_id>", methods=["GET"])
-def get_task_status(task_id):
-    with status_lock:
-        status = task_status_map.get(task_id, "unknown")
-    return jsonify({"task_id": task_id, "status": status})
 
 @app.route(API_BASE + "/report_status/<task_id>", methods=["POST"])
 def report_status(task_id):
@@ -355,11 +383,26 @@ def upload_result(filename):
             f.write(f"Completed at: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"Use Docker: {use_docker}\n")
 
+    # 结果上传成功后，删除原始任务包 {_task.zip}
+    try:
+        task_zip_path = os.path.join(TASK_DIR, f"{task_id}_task.zip")
+        if os.path.exists(task_zip_path):
+            os.remove(task_zip_path)
+            logger.info(f"Deleted task package: {task_zip_path}")
+        else:
+            logger.info(f"Task package not found for cleanup: {task_zip_path}")
+    except Exception as e:
+        logger.warning(f"Failed to delete task package {task_zip_path}: {e}")
+
     logger.info(f"Received result: {filename}")
     return jsonify({'status': 'success', 'message': 'Result uploaded successfully'})
 
 @app.route(API_BASE + '/download_result/<filename>')
 def download_result(filename):
+    return send_from_directory(TASK_DIR, filename)
+
+@app.route(API_BASE + '/download_task/<filename>')
+def download_task(filename):
     return send_from_directory(TASK_DIR, filename)
 
 if __name__ == '__main__':

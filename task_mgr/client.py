@@ -8,6 +8,7 @@ from pathlib import Path
 import logging
 import json
 import shutil as sh
+import redis
 
 TASK_ZIP_DIR = "/home/pi/tasks"
 WORK_BASE_DIR = "/home/pi/task_manager/work"
@@ -15,6 +16,12 @@ RESULT_DIR = "/home/pi/task_manager/results"
 LOG_FILE_PATH = "/home/pi/task_manager/client.log"
 SERVER_URL = "http://192.168.12.201:5000"
 API_BASE = "/pi_task"
+REDIS_HOST = "192.168.12.201" 
+REDIS_PORT = 6379
+TASK_QUEUE_HIGH = "pi_task_high"
+TASK_QUEUE_NORMAL = "pi_task_normal"
+
+rds = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0)
 
 os.makedirs(TASK_ZIP_DIR, exist_ok=True)
 os.makedirs(WORK_BASE_DIR, exist_ok=True)
@@ -66,7 +73,10 @@ def run_native_task(task_id, task_dir):
         log(f"NATIVE STDOUT:\n{result.stdout}")
         log(f"NATIVE STDERR:\n{result.stderr}")
     except subprocess.CalledProcessError as e:
-        log(f"Error during native execution: {e}")
+        log(f"Error during Docker build/run: {e}")
+        log(f"STDOUT: {e.stdout}")
+        log(f"STDERR: {e.stderr}")
+
 
 def run_docker_task(task_id, task_dir):
     docker_cmd = "/usr/bin/docker"  # ← 直接指定绝对路径
@@ -136,17 +146,53 @@ def process_task_zip(zip_path):
         shutil.rmtree(work_dir, ignore_errors=True)
         log(f"Cleaned up task {task_id}")
 
+def download_task_zip(task_zip_name):
+    url = f"{SERVER_URL}{API_BASE}/download_task/{task_zip_name}"
+    local_path = os.path.join(TASK_ZIP_DIR, task_zip_name)
+
+    log(f"Downloading task zip from {url} to {local_path}")
+    try:
+        resp = requests.get(url)
+        resp.raise_for_status()  # 如果请求失败，会抛出异常
+    except requests.exceptions.RequestException as e:
+        log(f"Error downloading {task_zip_name} from {url}: {e}")
+        raise  # 重新抛出异常，便于上层处理
+
+    with open(local_path, "wb") as f:
+        f.write(resp.content)
+
+    return local_path
+
 def main():
     log(f"Environment PATH: {os.environ.get('PATH')}")
-    log("Client started.")
+    log("Worker started, waiting for tasks from Redis...")
+
     while True:
         try:
-            for file in os.listdir(TASK_ZIP_DIR):
-                full_path = os.path.join(TASK_ZIP_DIR, file)
-                process_task_zip(full_path)
+            # 阻塞等待队列任务，timeout=5 秒只是为了有机会打印日志/重连
+            res = rds.blpop([TASK_QUEUE_HIGH, TASK_QUEUE_NORMAL], timeout=5)
+            if not res:
+                log("No tasks in queue, waiting...")
+                continue
+
+            queue_name, raw = res
+            queue_name = queue_name.decode("utf-8")
+            task_msg = json.loads(raw.decode("utf-8"))
+            task_id = task_msg["task_id"]
+            task_zip_name = task_msg["task_zip"]
+
+            log(f"Got task from {queue_name} task_id={task_id}, zip={task_zip_name}")
+
+            # 1. 先从 master 下载任务 zip 到本地 TASK_ZIP_DIR
+            local_zip_path = download_task_zip(task_zip_name)
+
+            # 2. 处理这个 zip
+            process_task_zip(local_zip_path)
+
         except Exception as e:
-            log(f"Error: {e}")
-        time.sleep(5)
+            log(f"Worker loop error: {e}")
+            time.sleep(2)
+
 
 if __name__ == "__main__":
     main()
