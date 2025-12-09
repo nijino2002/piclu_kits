@@ -1,378 +1,565 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Task Manager</title>
-    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/css/bootstrap.min.css" />
-    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/css/bootstrap.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.5.0/css/all.min.css"
+    />
     <style>
-        body { padding-top: 50px; }
-        .container { max-width: 900px; }
-        .card { margin-bottom: 20px; }
-        .alert { margin-top: 20px; }
-        pre {
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            background-color: #f8f9fa;
-            padding: 10px;
-            border-radius: 5px;
-        }
+      body {
+        padding-top: 50px;
+      }
+      .container {
+        max-width: 900px;
+      }
+      .card {
+        margin-bottom: 20px;
+      }
+      .alert {
+        margin-top: 20px;
+      }
+      pre {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        background-color: #f8f9fa;
+        padding: 10px;
+        border-radius: 5px;
+      }
     </style>
-</head>
-<body>
-<div class="container">
-    <h2 class="text-center">Task Manager</h2>
+  </head>
+  <body>
+    <div class="container">
+      <h2 class="text-center">Task Manager</h2>
 
-    <div class="text-left mb-4">
-      <button class="btn btn-secondary" data-toggle="modal" data-target="#buildTaskModal">
-        <i class="fa fa-wrench"></i> 构建任务包
-      </button>
-    </div>
+      <div class="text-left mb-4">
+        <button
+          class="btn btn-secondary"
+          data-toggle="modal"
+          data-target="#buildTaskModal"
+        >
+          <i class="fa fa-wrench"></i> 构建任务包
+        </button>
+      </div>
 
-    
-    <div class="card">
+      <div class="card">
         <div class="card-header">Submit Task</div>
         <div class="card-body">
-            <form id="taskForm" action="//start_task" method="POST" enctype="multipart/form-data">
-                <div class="form-group">
-                    <label for="ip">Raspberry Pi IP Address</label>
-                    <input type="text" class="form-control" id="ip" name="ip" required placeholder="Enter IP Address">
-                </div>
-                <div class="form-group">
-                    <label for="task_file">Task File (ZIP)</label>
-                    <input type="file" class="form-control-file" id="task_file" name="task_file" required>
-                </div>
-                <div class="form-group">
-                    <label for="task_type">Task Type</label>
-                    <input type="text" class="form-control" id="task_type" name="task_type" required />
-                </div>
-                <div class="form-group">
-                    <label for="dependency_id">Depends on Task ID (Optional)</label>
-                    <select id="dependency_id" name="dependency_id">
-                      <option value="">-- None --</option>
-                    </select>
-                </div>
-                <div class="form-group form-check">
-                    <input type="checkbox" class="form-check-input" id="use_docker" name="use_docker" checked>
-                    <label class="form-check-label" for="use_docker">Use Docker to execute the task</label>
-                </div>
-                <button type="submit" class="btn btn-primary btn-block">Submit Task</button>
-            </form>
+          <form
+            id="taskForm"
+            action="//start_task"
+            method="POST"
+            enctype="multipart/form-data"
+          >
+            <div class="form-group">
+              <label for="ip">Raspberry Pi IP Address</label>
+              <input
+                type="text"
+                class="form-control"
+                id="ip"
+                name="ip"
+                required
+                placeholder="Enter IP Address"
+              />
+            </div>
+            <div class="form-group">
+              <label for="task_file">Task File (ZIP)</label>
+              <input
+                type="file"
+                class="form-control-file"
+                id="task_file"
+                name="task_file"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label for="task_type">Task Type</label>
+              <input
+                type="text"
+                class="form-control"
+                id="task_type"
+                name="task_type"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label>Priority（优先级）</label>
+              <div class="form-check form-check-inline">
+                <input
+                  class="form-check-input"
+                  type="radio"
+                  name="priority"
+                  id="priority_normal"
+                  value="normal"
+                  checked
+                />
+                <label class="form-check-label" for="priority_normal"
+                  >普通</label
+                >
+              </div>
+              <div class="form-check form-check-inline">
+                <input
+                  class="form-check-input"
+                  type="radio"
+                  name="priority"
+                  id="priority_high"
+                  value="high"
+                />
+                <label class="form-check-label" for="priority_high"
+                  >高优先级</label
+                >
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="dependency_id">Depends on Task ID (Optional)</label>
+              <select id="dependency_id" name="dependency_id">
+                <option value="">-- None --</option>
+              </select>
+            </div>
+            <div class="form-group form-check">
+              <input
+                type="checkbox"
+                class="form-check-input"
+                id="use_docker"
+                name="use_docker"
+                checked
+              />
+              <label class="form-check-label" for="use_docker"
+                >Use Docker to execute the task</label
+              >
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">
+              Submit Task
+            </button>
+          </form>
         </div>
-    </div>
+      </div>
 
-    <div id="result" class="alert" style="display: none;"></div>
+      <div id="result" class="alert" style="display: none"></div>
 
-    <div id="taskStatusSection" style="display: none;">
+      <div id="taskStatusSection" style="display: none">
         <h4>Current Task Status</h4>
         <div id="taskStatus"></div>
-        <a id="downloadLink" href="#" style="display: none;" class="btn btn-success mt-3">Download Result</a>
-    </div>
+        <a
+          id="downloadLink"
+          href="#"
+          style="display: none"
+          class="btn btn-success mt-3"
+          >Download Result</a
+        >
+      </div>
 
-    <div class="card">
+      <div class="card">
         <div class="card-header">Task History (Grouped by Client IP)</div>
         <div class="card-body">
-            {% if ip_groups %}
-                {% for ip, task_list in ip_groups.items() %}
-                    <details style="margin-bottom: 10px;">
-                        <summary><i class="fa-brands fa-raspberry-pi">&nbsp;&nbsp;</i><strong>Client IP:</strong> {{ ip }} ({{ task_list|length }} tasks)</summary>
-                        <ul class="list-group mt-2">
-                            {% for task in task_list %}
-                            <li class="list-group-item">
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <small id="status_{{ task.id }}"><i class="fa fa-circle-notch fa-spin text-muted"></i> Status: loading...</small><br>
-                                        <i class="fa-solid fa-gears">&nbsp;&nbsp;</i><strong>Task ID:</strong> {{ task.id }}<br>
-                                        {% if task.task_type %}
-                                        <small>Task type: {{ task.task_type }}</small><br>
-                                        {% endif %}
-                                        {% if task.submit_time %}
-                                        <small>Submitted: {{ task.submit_time }}</small><br>
-                                        {% endif %}
-                                        {% if task.finish_time %}
-                                        <small>Finished: {{ task.finish_time }}</small><br>
-                                        {% endif %}
-                                        {% if task.use_docker is not none %}
-                                        <small>Executed with Docker: {{ 'Yes' if task.use_docker else 'No' }}</small><br>
-                                        {% endif %}
-                                    </div>
-                                    <div>
-                                        <button class="btn btn-sm btn-info" onclick="viewStatus('{{ task.id }}')">View Status</button>
-                                        {% if task.has_result %}
-                                        <a class="btn btn-sm btn-success" href="/pi_task/download_result/{{ task.id }}_result.zip" download>Download Result</a>
-                                        {% endif %}
-                                    </div>
-                                </div>
-                            </li>
-                            {% endfor %}
-                        </ul>
-                    </details>
-                {% endfor %}
-            {% else %}
-            <p>No history found.</p>
-            {% endif %}
+          {% if ip_groups %} {% for ip, task_list in ip_groups.items() %}
+          <details style="margin-bottom: 10px">
+            <summary>
+              <i class="fa-brands fa-raspberry-pi">&nbsp;&nbsp;</i
+              ><strong>Client IP:</strong> {{ ip }} ({{ task_list|length }}
+              tasks)
+            </summary>
+            <ul class="list-group mt-2">
+              {% for task in task_list %}
+              <li class="list-group-item">
+                <div class="d-flex justify-content-between align-items-center">
+                  <div>
+                    <small id="status_{{ task.id }}"
+                      ><i class="fa fa-circle-notch fa-spin text-muted"></i>
+                      Status: loading...</small
+                    ><br />
+                    <i class="fa-solid fa-gears">&nbsp;&nbsp;</i
+                    ><strong>Task ID:</strong> {{ task.id }}<br />
+                    {% if task.task_type %}
+                    <small>Task type: {{ task.task_type }}</small><br />
+                    {% endif %} {% if task.submit_time %}
+                    <small>Submitted: {{ task.submit_time }}</small><br />
+                    {% endif %} {% if task.finish_time %}
+                    <small>Finished: {{ task.finish_time }}</small><br />
+                    {% endif %} {% if task.use_docker is not none %}
+                    <small
+                      >Executed with Docker: {{ 'Yes' if task.use_docker else
+                      'No' }}</small
+                    ><br />
+                    {% endif %}
+                  </div>
+                  <div>
+                    <button
+                      class="btn btn-sm btn-info"
+                      onclick="viewStatus('{{ task.id }}')"
+                    >
+                      View Status
+                    </button>
+                    {% if task.has_result %}
+                    <a
+                      class="btn btn-sm btn-success"
+                      href="/pi_task/download_result/{{ task.id }}_result.zip"
+                      download
+                      >Download Result</a
+                    >
+                    {% endif %}
+                  </div>
+                </div>
+              </li>
+              {% endfor %}
+            </ul>
+          </details>
+          {% endfor %} {% else %}
+          <p>No history found.</p>
+          {% endif %}
         </div>
-    </div> <!-- end of card -->
+      </div>
+      <!-- end of card -->
 
-    <!-- Build Task Modal -->
-    <div class="modal fade" id="buildTaskModal" tabindex="-1" aria-labelledby="buildTaskModalLabel" aria-hidden="true">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <form id="buildTaskForm" enctype="multipart/form-data">
-            <div class="modal-header">
-              <h5 class="modal-title" id="buildTaskModalLabel">构建任务包</h5>
-              <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                <span aria-hidden="true">&times;</span>
-              </button>
-            </div>
-            <div class="modal-body">
-              <div class="form-group">
-                <label>任务类型</label>
-                <select id="taskMode" class="form-control" name="task_mode" required>
-                  <option value="">请选择</option>
-                  <option value="example">示例任务</option>
-                  <option value="custom">自定义任务</option>
-                </select>
+      <!-- Build Task Modal -->
+      <div
+        class="modal fade"
+        id="buildTaskModal"
+        tabindex="-1"
+        aria-labelledby="buildTaskModalLabel"
+        aria-hidden="true"
+      >
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <form id="buildTaskForm" enctype="multipart/form-data">
+              <div class="modal-header">
+                <h5 class="modal-title" id="buildTaskModalLabel">构建任务包</h5>
+                <button
+                  type="button"
+                  class="close"
+                  data-dismiss="modal"
+                  aria-label="Close"
+                >
+                  <span aria-hidden="true">&times;</span>
+                </button>
               </div>
-
-              <div id="exampleOptions" style="display: none;">
+              <div class="modal-body">
                 <div class="form-group">
-                  <label>示例任务</label>
-                  <select name="example_task" class="form-control">
-                    <option value="sha256">sha256</option>
-                    <option value="aes_enc">aes_enc</option>
-                    <option value="aes_dec">aes_dec</option>
+                  <label>任务类型</label>
+                  <select
+                    id="taskMode"
+                    class="form-control"
+                    name="task_mode"
+                    required
+                  >
+                    <option value="">请选择</option>
+                    <option value="example">示例任务</option>
+                    <option value="custom">自定义任务</option>
                   </select>
                 </div>
-                <div class="form-group" id="depZipGroup" style="display: none;">
-                  <label>依赖 ZIP（仅 aes_dec）</label>
-                  <input type="file" name="dep_zip" class="form-control-file">
-                </div>
-              </div>
 
-              <div id="customOptions" style="display: none;">
-                <div id="customTaskNameGroup" class="form-group" style="display: none;">
-                  <label>任务名称</label>
-                  <input type="text" class="form-control" name="custom_task_name" placeholder="请输入任务名称" required>
+                <div id="exampleOptions" style="display: none">
+                  <div class="form-group">
+                    <label>示例任务</label>
+                    <select name="example_task" class="form-control">
+                      <option value="sha256">sha256</option>
+                      <option value="aes_enc">aes_enc</option>
+                      <option value="aes_dec">aes_dec</option>
+                    </select>
+                  </div>
+                  <div
+                    class="form-group"
+                    id="depZipGroup"
+                    style="display: none"
+                  >
+                    <label>依赖 ZIP（仅 aes_dec）</label>
+                    <input
+                      type="file"
+                      name="dep_zip"
+                      class="form-control-file"
+                    />
+                  </div>
                 </div>
-                <div class="form-group">
-                  <label>上传任务代码 ZIP</label>
-                  <input type="file" name="code_zip" class="form-control-file" required>
-                </div>
-                <div class="form-group">
-                  <label>上传输入数据 ZIP（可选）</label>
-                  <input type="file" name="input_zip" class="form-control-file">
-                </div>
-                <div class="form-group form-check">
-                  <input type="checkbox" class="form-check-input" name="use_docker" checked>
-                  <label class="form-check-label">使用 Docker</label>
+
+                <div id="customOptions" style="display: none">
+                  <div
+                    id="customTaskNameGroup"
+                    class="form-group"
+                    style="display: none"
+                  >
+                    <label>任务名称</label>
+                    <input
+                      type="text"
+                      class="form-control"
+                      name="custom_task_name"
+                      placeholder="请输入任务名称"
+                      required
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label>上传任务代码 ZIP</label>
+                    <input
+                      type="file"
+                      name="code_zip"
+                      class="form-control-file"
+                      required
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label>上传输入数据 ZIP（可选）</label>
+                    <input
+                      type="file"
+                      name="input_zip"
+                      class="form-control-file"
+                    />
+                  </div>
+                  <div class="form-group form-check">
+                    <input
+                      type="checkbox"
+                      class="form-check-input"
+                      name="use_docker"
+                      checked
+                    />
+                    <label class="form-check-label">使用 Docker</label>
+                  </div>
                 </div>
               </div>
-            </div>
-            <div class="modal-footer">
-              <button type="button" class="btn btn-primary" id="submitBuildTaskBtn">构建</button>
-            </div>
-          </form>
+              <div class="modal-footer">
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  id="submitBuildTaskBtn"
+                >
+                  构建
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       </div>
     </div>
 
-</div>
+    <!-- jQuery 3.5.1 -->
+    <script src="https://cdn.bootcdn.net/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <!-- Bootstrap 4.5.2 JS（带 Popper.js 版，推荐用 bundle） -->
+    <script src="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/js/bootstrap.bundle.min.js"></script>
 
-<!-- jQuery 3.5.1 -->
-<script src="https://cdn.bootcdn.net/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
-<!-- Bootstrap 4.5.2 JS（带 Popper.js 版，推荐用 bundle） -->
-<script src="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/js/bootstrap.bundle.min.js"></script>
+    <script>
+      const API_BASE = "/pi_task";
 
-<script>
-    const API_BASE = '/pi_task';
-
-    // handle Build Task
-    $('#taskMode').on('change', function () {
-      const mode = $(this).val();
-      $('#exampleOptions').toggle(mode === 'example');
-      $('#customOptions').toggle(mode === 'custom');
-      $('#customTaskNameGroup').toggle(mode === 'custom');
-    });
-
-    $('select[name="example_task"]').on('change', function () {
-      $('#depZipGroup').toggle($(this).val() === 'aes_dec');
-    });
-
-
-    $('#submitBuildTaskBtn').on('click', function () {
-      $('#buildTaskForm [required]').each(function () {
-        if ($(this).is(':hidden')) {
-          $(this).prop('required', false);
-        }
+      // handle Build Task
+      $("#taskMode").on("change", function () {
+        const mode = $(this).val();
+        $("#exampleOptions").toggle(mode === "example");
+        $("#customOptions").toggle(mode === "custom");
       });
 
-      const formData = new FormData($('#buildTaskForm')[0]);
-      const mode = formData.get("task_mode");
-      const example_task = formData.get("example_task");
-
-      if (mode === "example") {
-        formData.delete("custom_task_name");
-        formData.delete("code_zip");
-        formData.delete("input_zip");
-        formData.delete("use_docker");
-        // 关键！只允许 aes_dec 带 dep_zip，其它必须删掉
-        if (example_task !== "aes_dec") {
-          formData.delete("dep_zip");
-        }
-        // 防御性，防止 dep_zip 残留空文件
-        const depZipInput = document.querySelector('input[name="dep_zip"]');
-        if (depZipInput && depZipInput.files.length === 0) {
-          formData.delete("dep_zip");
-        }
-      } else if (mode === "custom") {
-        formData.delete("example_task");
-        formData.delete("dep_zip");
-      }
-
-      $.ajax({
-        url: API_BASE + '/build_task',
-        type: 'POST',
-        data: formData,
-        processData: false,
-        contentType: false,
-        xhrFields: { responseType: 'blob' },
-        success: function (blob, status, xhr) {
-          const disposition = xhr.getResponseHeader('Content-Disposition');
-          const filename = disposition ? disposition.split('filename=')[1] : 'task_package.zip';
-          const link = document.createElement('a');
-          link.href = window.URL.createObjectURL(blob);
-          link.download = filename;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          $('#buildTaskModal').modal('hide');
-        },
-        error: function () {
-          alert('构建任务包失败，请检查输入');
-        }
+      $('select[name="example_task"]').on("change", function () {
+        $("#depZipGroup").toggle($(this).val() === "aes_dec");
       });
-    });
 
+      $("#submitBuildTaskBtn").on("click", function () {
+        $("#buildTaskForm [required]").each(function () {
+          if ($(this).is(":hidden")) {
+            $(this).prop("required", false);
+          }
+        });
 
-    $('#taskForm').on('submit', function(event) {
-        event.preventDefault();
-        var formData = new FormData(this);
-        $('button[type="submit"]').prop('disabled', true);
+        const formData = new FormData($("#buildTaskForm")[0]);
+        const mode = formData.get("task_mode");
+        const example_task = formData.get("example_task");
+
+        if (mode === "example") {
+          formData.delete("custom_task_name");
+          formData.delete("code_zip");
+          formData.delete("input_zip");
+          formData.delete("use_docker");
+          // 关键！只允许 aes_dec 带 dep_zip，其它必须删掉
+          if (example_task !== "aes_dec") {
+            formData.delete("dep_zip");
+          }
+          // 防御性，防止 dep_zip 残留空文件
+          const depZipInput = document.querySelector('input[name="dep_zip"]');
+          if (depZipInput && depZipInput.files.length === 0) {
+            formData.delete("dep_zip");
+          }
+        } else if (mode === "custom") {
+          formData.delete("example_task");
+          formData.delete("dep_zip");
+        }
 
         $.ajax({
-            url: API_BASE + '/start_task',
-            type: 'POST',
-            data: formData,
-            success: function(response) {
-                if (response.status === 'success') {
-                    $('#result').removeClass('alert-danger').addClass('alert-success').text(response.message).show();
-                    $('#taskStatusSection').show();
-                    checkTaskStatus(response.task_id);
-                } else {
-                    $('#result').removeClass('alert-success').addClass('alert-danger').text(response.message).show();
-                }
-                $('button[type="submit"]').prop('disabled', false);
-            },
-            error: function() {
-                $('#result').removeClass('alert-success').addClass('alert-danger').text('Failed to submit task.').show();
-                $('button[type="submit"]').prop('disabled', false);
-            },
-            cache: false,
-            contentType: false,
-            processData: false
+          url: API_BASE + "/build_task",
+          type: "POST",
+          data: formData,
+          processData: false,
+          contentType: false,
+          xhrFields: { responseType: "blob" },
+          success: function (blob, status, xhr) {
+            const disposition = xhr.getResponseHeader("Content-Disposition");
+            const filename = disposition
+              ? disposition.split("filename=")[1]
+              : "task_package.zip";
+            const link = document.createElement("a");
+            link.href = window.URL.createObjectURL(blob);
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            $("#buildTaskModal").modal("hide");
+          },
+          error: function () {
+            alert("构建任务包失败，请检查输入");
+          },
         });
-    });
+      });
 
-    function checkTaskStatus(taskId) {
-        const interval = setInterval(function () {
-            $.getJSON(API_BASE + '/task_status/' + taskId, function (response) {
-                const status = response.status;
-                $('#taskStatusSection').show();
-                $('#taskStatus').html('<pre>Status: ' + status + '</pre>');
+      $("#taskForm").on("submit", function (event) {
+        event.preventDefault();
+        var formData = new FormData(this);
+        $('button[type="submit"]').prop("disabled", true);
 
-                if (status === 'success' || status === 'failed') {
-                    $('#downloadLink').attr('href', API_BASE + '/download_result/' + taskId + '_result.zip').show();
-                    clearInterval(interval);
-                } else {
-                    $('#downloadLink').hide();
-                }
-            }).fail(function (xhr) {
-                clearInterval(interval);
-                $('#taskStatus').html('<pre>Error fetching task status: ' + xhr.responseText + '</pre>');
-            });
-        }, 1000);
-    }
-
-    function viewStatus(taskId) {
-        $.getJSON(API_BASE + '/task_status/' + taskId, function (response) {
-            const status = response.status;
-            $('#taskStatusSection').show();
-            $('#taskStatus').html('<pre>Status: ' + status + '</pre>');
-
-            if (status === 'success') {
-                $('#downloadLink').attr('href', API_BASE + '/download_result/' + taskId + '_result.zip').show();
+        $.ajax({
+          url: API_BASE + "/start_task",
+          type: "POST",
+          data: formData,
+          success: function (response) {
+            if (response.status === "success") {
+              $("#result")
+                .removeClass("alert-danger")
+                .addClass("alert-success")
+                .text(response.message)
+                .show();
+              $("#taskStatusSection").show();
+              checkTaskStatus(response.task_id);
             } else {
-                $('#downloadLink').hide();
+              $("#result")
+                .removeClass("alert-success")
+                .addClass("alert-danger")
+                .text(response.message)
+                .show();
             }
-            $('html, body').animate({ scrollTop: $('#taskStatusSection').offset().top }, 'slow');
+            $('button[type="submit"]').prop("disabled", false);
+          },
+          error: function () {
+            $("#result")
+              .removeClass("alert-success")
+              .addClass("alert-danger")
+              .text("Failed to submit task.")
+              .show();
+            $('button[type="submit"]').prop("disabled", false);
+          },
+          cache: false,
+          contentType: false,
+          processData: false,
+        });
+      });
+
+      function checkTaskStatus(taskId) {
+        const interval = setInterval(function () {
+          $.getJSON(API_BASE + "/task_status/" + taskId, function (response) {
+            const status = response.status;
+            $("#taskStatusSection").show();
+            $("#taskStatus").html("<pre>Status: " + status + "</pre>");
+
+            if (status === "success" || status === "failed") {
+              $("#downloadLink")
+                .attr(
+                  "href",
+                  API_BASE + "/download_result/" + taskId + "_result.zip"
+                )
+                .show();
+              clearInterval(interval);
+            } else {
+              $("#downloadLink").hide();
+            }
+          }).fail(function (xhr) {
+            clearInterval(interval);
+            $("#taskStatus").html(
+              "<pre>Error fetching task status: " + xhr.responseText + "</pre>"
+            );
+          });
+        }, 1000);
+      }
+
+      function viewStatus(taskId) {
+        $.getJSON(API_BASE + "/task_status/" + taskId, function (response) {
+          const status = response.status;
+          $("#taskStatusSection").show();
+          $("#taskStatus").html("<pre>Status: " + status + "</pre>");
+
+          if (status === "success") {
+            $("#downloadLink")
+              .attr(
+                "href",
+                API_BASE + "/download_result/" + taskId + "_result.zip"
+              )
+              .show();
+          } else {
+            $("#downloadLink").hide();
+          }
+          $("html, body").animate(
+            { scrollTop: $("#taskStatusSection").offset().top },
+            "slow"
+          );
         }).fail(function () {
-            alert('Failed to load task status');
+          alert("Failed to load task status");
         });
-    }
+      }
 
-    document.addEventListener("DOMContentLoaded", function() {
-    fetch(API_BASE + "/list_result_tasks")
-        .then(response => response.json())
-        .then(data => {
+      document.addEventListener("DOMContentLoaded", function () {
+        fetch(API_BASE + "/list_result_tasks")
+          .then((response) => response.json())
+          .then((data) => {
             const select = document.getElementById("dependency_id");
-            data.forEach(taskId => {
-                const option = document.createElement("option");
-                option.value = taskId;
-                option.text = taskId;
-                select.appendChild(option);
+            data.forEach((taskId) => {
+              const option = document.createElement("option");
+              option.value = taskId;
+              option.text = taskId;
+              select.appendChild(option);
             });
-        })
-        .catch(error => console.error("Failed to load dependent tasks:", error));
+          })
+          .catch((error) =>
+            console.error("Failed to load dependent tasks:", error)
+          );
 
-        document.querySelectorAll('[id^="status_"]').forEach(el => {
-            const taskId = el.id.replace("status_", "");
-            fetch(API_BASE + '/task_status/' + taskId)
-                .then(resp => resp.json())
-                .then(data => {
-                    let color = "secondary";
-                    let icon = "fa-circle-question";
-                    if (data.status === "running") {
-                        color = "info";
-                        icon = "fa-spinner fa-spin";
-                    } else if (data.status === "success") {
-                        color = "success";
-                        icon = "fa-check-circle";
-                    } else if (data.status === "failed") {
-                        color = "danger";
-                        icon = "fa-times-circle";
-                    }
-                    el.innerHTML = `<i class="fa ${icon} text-${color}"></i> Status: ${data.status}`;
-                })
-                .catch(() => {
-                    el.innerHTML = `<i class="fa fa-exclamation-circle text-warning"></i> Status: unknown`;
-                });
+        document.querySelectorAll('[id^="status_"]').forEach((el) => {
+          const taskId = el.id.replace("status_", "");
+          fetch(API_BASE + "/task_status/" + taskId)
+            .then((resp) => resp.json())
+            .then((data) => {
+              let color = "secondary";
+              let icon = "fa-circle-question";
+              if (data.status === "running") {
+                color = "info";
+                icon = "fa-spinner fa-spin";
+              } else if (data.status === "success") {
+                color = "success";
+                icon = "fa-check-circle";
+              } else if (data.status === "failed") {
+                color = "danger";
+                icon = "fa-times-circle";
+              }
+              el.innerHTML = `<i class="fa ${icon} text-${color}"></i> Status: ${data.status}`;
+            })
+            .catch(() => {
+              el.innerHTML = `<i class="fa fa-exclamation-circle text-warning"></i> Status: unknown`;
+            });
         });
-    });
+      });
 
-    document.getElementById("task_file").addEventListener("change", function () {
-        const file = this.files[0];
-        if (file) {
+      document
+        .getElementById("task_file")
+        .addEventListener("change", function () {
+          const file = this.files[0];
+          if (file) {
             const filename = file.name;
             const match = filename.match(/^(.+)_task\.zip$/);
             if (match) {
-                document.getElementById("task_type").value = match[1];
+              document.getElementById("task_type").value = match[1];
             } else {
-                console.warn("Filename does not follow <task_type>_task.zip pattern");
+              console.warn(
+                "Filename does not follow <task_type>_task.zip pattern"
+              );
             }
-        }
-    });
-</script>
-</body>
+          }
+        });
+    </script>
+  </body>
 </html>
