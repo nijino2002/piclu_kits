@@ -451,7 +451,7 @@
               $("#downloadLink")
                 .attr(
                   "href",
-                  API_BASE + "/download_result/" + taskId + "_result.zip",
+                  API_BASE + "/download_result/" + taskId + "_result.zip"
                 )
                 .show();
               clearInterval(interval);
@@ -461,7 +461,7 @@
           }).fail(function (xhr) {
             clearInterval(interval);
             $("#taskStatus").html(
-              "<pre>Error fetching task status: " + xhr.responseText + "</pre>",
+              "<pre>Error fetching task status: " + xhr.responseText + "</pre>"
             );
           });
         }, 1000);
@@ -477,7 +477,7 @@
             $("#downloadLink")
               .attr(
                 "href",
-                API_BASE + "/download_result/" + taskId + "_result.zip",
+                API_BASE + "/download_result/" + taskId + "_result.zip"
               )
               .show();
           } else {
@@ -485,7 +485,7 @@
           }
           $("html, body").animate(
             { scrollTop: $("#taskStatusSection").offset().top },
-            "slow",
+            "slow"
           );
         }).fail(function () {
           alert("Failed to load task status");
@@ -505,7 +505,7 @@
             });
           })
           .catch((error) =>
-            console.error("Failed to load dependent tasks:", error),
+            console.error("Failed to load dependent tasks:", error)
           );
 
         document.querySelectorAll('[id^="status_"]').forEach((el) => {
@@ -544,7 +544,7 @@
               document.getElementById("task_type").value = match[1];
             } else {
               console.warn(
-                "Filename does not follow <task_type>_task.zip pattern",
+                "Filename does not follow <task_type>_task.zip pattern"
               );
             }
           }
