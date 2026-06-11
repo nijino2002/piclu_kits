@@ -1,41 +1,38 @@
-# client.py - Redis 优先级队列 + 原有高级执行逻辑（融合版）
-
-import os
-import time
-import zipfile
-import subprocess
-import requests
-import shutil
-from pathlib import Path
-import logging
 import json
+import logging
+import os
+import shutil
 import shutil as sh
-import redis  # Redis 客户端
+import subprocess
+import time
+import socket
+import zipfile
+from pathlib import Path
 
-# ===================== 基本配置 =====================
+import redis
+import requests
+
 TASK_ZIP_DIR = "/home/pi/tasks"
 WORK_BASE_DIR = "/home/pi/task_manager/work"
 RESULT_DIR = "/home/pi/task_manager/results"
 LOG_FILE_PATH = "/home/pi/task_manager/client.log"
 
-SERVER_URL = "http://192.168.12.201:5000"  # 管理端地址（master）
-API_BASE = "/pi_task"                      # 后端统一前缀
+SERVER_URL = "http://192.168.12.201:5000"
+API_BASE = "/pi_task"
 
-# Redis 配置（调度用）
-REDIS_HOST = "192.168.12.201"   # master 的 IP（跑 Redis 的那台）
+REDIS_HOST = "192.168.12.201"
 REDIS_PORT = 6379
-TASK_QUEUE_HIGH = "pi_task_high"      # 高优先级队列名，要和 master 保持一致
-TASK_QUEUE_NORMAL = "pi_task_normal"  # 普通优先级队列名
+TASK_QUEUE_HIGH = "pi_task_high"
+TASK_QUEUE_NORMAL = "pi_task_normal"
+WORKER_ID = socket.gethostname()
+PROCESSING_QUEUE_HIGH = f"pi_task_high_processing_{WORKER_ID}"
+PROCESSING_QUEUE_NORMAL = f"pi_task_normal_processing_{WORKER_ID}"
 
-# 镜像源候选（会按顺序尝试）
 BASE_IMAGE_CANDIDATES = [
-    "python:3.11-slim-bookworm",                          # 官方（优先）
-    "dockerproxy.net/library/python:3.11-slim-bookworm",  # 代理备选
+    "python:3.11-slim-bookworm",
+    "dockerproxy.net/library/python:3.11-slim-bookworm",
 ]
-
-# 可选 PyPI 源（传空字符串则用官方）
 DEFAULT_PYPI_MIRROR = "https://pypi.tuna.tsinghua.edu.cn/simple"
-# 若你希望默认走官方，把上面改成 "" 即可
 
 os.makedirs(TASK_ZIP_DIR, exist_ok=True)
 os.makedirs(WORK_BASE_DIR, exist_ok=True)
@@ -44,20 +41,17 @@ os.makedirs(RESULT_DIR, exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s: %(message)s",
-    handlers=[logging.FileHandler(LOG_FILE_PATH), logging.StreamHandler()]
+    handlers=[logging.FileHandler(LOG_FILE_PATH), logging.StreamHandler()],
 )
 logger = logging.getLogger("client")
+rds = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0)
+
 
 def log(msg):
     logger.info(msg)
 
-# Redis 连接（程序启动就连一次）
-rds = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0)
 
-
-# ===================== 上报工具函数 =====================
 def report(task_id, phase=None, msg=None, progress=None, status=None):
-    """向后端上报任务阶段/状态。status 可省略，后端会按 phase 推导。"""
     payload = {}
     if phase is not None:
         payload["phase"] = phase
@@ -67,61 +61,58 @@ def report(task_id, phase=None, msg=None, progress=None, status=None):
         payload["progress"] = progress
     if status is not None:
         payload["status"] = status
+
     try:
-        r = requests.post(
+        resp = requests.post(
             f"{SERVER_URL}{API_BASE}/report_status/{task_id}",
             json=payload,
             timeout=5,
         )
-        log(f"Report status ({phase}): {r.status_code}")
-    except Exception as e:
-        log(f"Report status failed: {e}")
+        log(f"Report status ({phase}): {resp.status_code}")
+    except Exception as exc:
+        log(f"Report status failed: {exc}")
 
 
-# ===================== 任务配置 =====================
 def load_task_config(task_dir):
     config_path = os.path.join(task_dir, "task_config.json")
     try:
-        with open(config_path, "r") as f:
+        with open(config_path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception as e:
-        log(f"Failed to load config: {e}. Defaulting to use_docker=True")
+    except Exception as exc:
+        log(f"Failed to load config: {exc}. Defaulting to use_docker=True")
         return {"use_docker": True}
 
 
-# ===================== 结果上传 =====================
 def upload_result(task_id, result_zip_path):
     try:
         with open(result_zip_path, "rb") as f:
-            files = {"file": f}
             resp = requests.post(
                 f"{SERVER_URL}{API_BASE}/upload_result/{task_id}_result.zip",
-                files=files,
+                files={"file": f},
                 timeout=60,
             )
         log(f"Upload response: {resp.status_code} - {resp.text}")
         return 200 <= resp.status_code < 300
-    except Exception as e:
-        log(f"Failed to upload result: {e}")
+    except Exception as exc:
+        log(f"Failed to upload result: {exc}")
         return False
 
 
-# ===================== 本地执行（非容器） =====================
 def run_native_task(task_id, task_dir):
     report(task_id, phase="container_started", msg="Starting native run", progress=45, status="running")
     try:
         req_file = os.path.join(task_dir, "requirements.txt")
         if os.path.exists(req_file):
-            report(task_id, phase="running", msg="Installing requirements (native)", progress=50)
+            report(task_id, phase="running", msg="Installing requirements (native)", progress=50, status="running")
             subprocess.run(["pip3", "install", "-r", req_file], check=False)
 
         main_file = os.path.join(task_dir, "main.py")
-        report(task_id, phase="running", msg="Executing main.py (native)", progress=60)
+        report(task_id, phase="running", msg="Executing main.py (native)", progress=60, status="running")
         result = subprocess.run(
             ["python3", main_file],
             cwd=task_dir,
             capture_output=True,
-            text=True
+            text=True,
         )
         log(f"NATIVE STDOUT:\n{result.stdout}")
         log(f"NATIVE STDERR:\n{result.stderr}")
@@ -130,54 +121,50 @@ def run_native_task(task_id, task_dir):
             report(task_id, phase="completed_failed", msg=f"Native run exitcode={result.returncode}", status="failed")
             return False
         return True
-    except subprocess.CalledProcessError as e:
-        log(f"Error during native execution: {e}")
-        report(task_id, phase="completed_failed", msg=str(e), status="failed")
-        return False
-    except Exception as e:
-        log(f"Exception during native execution: {e}")
-        report(task_id, phase="completed_failed", msg=str(e), status="failed")
+    except Exception as exc:
+        log(f"Exception during native execution: {exc}")
+        report(task_id, phase="completed_failed", msg=str(exc), status="failed")
         return False
 
 
-# ===================== 容器执行 =====================
 def _resolve_docker_path():
-    for p in ("/usr/bin/docker", "/usr/local/bin/docker"):
-        if os.path.exists(p):
-            return p
+    for path in ("/usr/bin/docker", "/usr/local/bin/docker"):
+        if os.path.exists(path):
+            return path
     return sh.which("docker")
 
+
 def _docker_env():
-    """构建 docker 子进程的环境：开启 BuildKit，并透传代理环境变量。"""
     env = os.environ.copy()
     env["DOCKER_BUILDKIT"] = "1"
-    # 如果宿主机设置了代理，透传给 build 过程（让拉取依赖时也能走代理）
-    for k in ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "NO_PROXY", "no_proxy"):
-        if k in os.environ:
-            env[k] = os.environ[k]
+    for key in ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "NO_PROXY", "no_proxy"):
+        if key in os.environ:
+            env[key] = os.environ[key]
     return env
 
+
 def _docker_pull_with_retry(docker_cmd, image, retries=3, sleep_sec=3):
-    """带重试的 docker pull；返回 True/False。"""
-    for i in range(1, retries+1):
+    for attempt in range(1, retries + 1):
         pull = subprocess.run(
             [docker_cmd, "pull", image],
-            capture_output=True, text=True, env=_docker_env()
+            capture_output=True,
+            text=True,
+            env=_docker_env(),
         )
         if pull.returncode == 0:
             return True
         tail = pull.stderr.strip().splitlines()[-10:]
-        log(f"DOCKER PULL BASE STDERR (tail):\n" + "\n".join(tail))
-        time.sleep(sleep_sec * i)
+        log("DOCKER PULL BASE STDERR (tail):\n" + "\n".join(tail))
+        time.sleep(sleep_sec * attempt)
     return False
 
+
 def _select_base_image(docker_cmd):
-    """按候选列表依次尝试预拉，返回可用的基础镜像字符串；否则返回 None。"""
     for base in BASE_IMAGE_CANDIDATES:
-        ok = _docker_pull_with_retry(docker_cmd, base)
-        if ok:
+        if _docker_pull_with_retry(docker_cmd, base):
             return base
     return None
+
 
 def run_docker_task(task_id, task_dir):
     docker_cmd = _resolve_docker_path()
@@ -187,7 +174,6 @@ def run_docker_task(task_id, task_dir):
         report(task_id, phase="completed_failed", msg=msg, status="failed")
         return False
 
-    # 选基础镜像：先官方，失败再代理；都失败就直接判定失败
     base_image = _select_base_image(docker_cmd)
     if not base_image:
         msg = "Failed to pull any base image candidates"
@@ -199,13 +185,17 @@ def run_docker_task(task_id, task_dir):
 
     try:
         report(task_id, phase="image_build", msg=f"Building Docker image from {base_image}", progress=20, status="running")
-
-        # 通过 --build-arg 把 BASE_IMAGE 和 PIP_INDEX_URL 传进 Dockerfile
         build_cmd = [
-            docker_cmd, "build", "--pull",
-            "--build-arg", f"BASE_IMAGE={base_image}",
-            "--build-arg", f"PIP_INDEX_URL={DEFAULT_PYPI_MIRROR}",
-            "-t", docker_image, "."
+            docker_cmd,
+            "build",
+            "--pull",
+            "--build-arg",
+            f"BASE_IMAGE={base_image}",
+            "--build-arg",
+            f"PIP_INDEX_URL={DEFAULT_PYPI_MIRROR}",
+            "-t",
+            docker_image,
+            ".",
         ]
 
         build = subprocess.run(
@@ -213,74 +203,74 @@ def run_docker_task(task_id, task_dir):
             cwd=task_dir,
             capture_output=True,
             text=True,
-            env=_docker_env()
+            env=_docker_env(),
         )
         if build.returncode != 0:
             tail = (build.stderr or "").strip().splitlines()[-30:]
             log("DOCKER BUILD STDERR (tail):\n" + "\n".join(tail))
-            report(task_id, phase="completed_failed",
-                   msg=f"Docker build failed (base={base_image}). See client.log tail.",
-                   status="failed")
+            report(
+                task_id,
+                phase="completed_failed",
+                msg=f"Docker build failed (base={base_image}). See client.log tail.",
+                status="failed",
+            )
             return False
 
-        report(task_id, phase="image_built", msg="Docker image built", progress=40)
-        report(task_id, phase="container_started", msg="Starting container", progress=50)
+        report(task_id, phase="image_built", msg="Docker image built", progress=40, status="running")
+        report(task_id, phase="container_started", msg="Starting container", progress=50, status="running")
 
         runres = subprocess.run(
             [docker_cmd, "run", "--rm", "-v", f"{task_dir}:/task", docker_image],
             cwd=task_dir,
             capture_output=True,
             text=True,
-            env=_docker_env()
+            env=_docker_env(),
         )
-        report(task_id, phase="running", msg="Container running", progress=70)
+        report(task_id, phase="running", msg="Container running", progress=70, status="running")
 
         log(f"Docker STDOUT:\n{runres.stdout}")
         log(f"Docker STDERR:\n{runres.stderr}")
 
         if runres.returncode != 0:
-            report(task_id, phase="completed_failed",
-                   msg=f"Container exitcode={runres.returncode}; stderr tail: {runres.stderr[-400:]}",
-                   status="failed")
+            report(
+                task_id,
+                phase="completed_failed",
+                msg=f"Container exitcode={runres.returncode}; stderr tail: {runres.stderr[-400:]}",
+                status="failed",
+            )
             return False
 
         return True
-
-    except subprocess.CalledProcessError as e:
-        log(f"Docker error: {e}")
-        report(task_id, phase="completed_failed", msg=str(e), status="failed")
-        return False
-    except Exception as e:
-        log(f"Exception during docker run: {e}")
-        report(task_id, phase="completed_failed", msg=str(e), status="failed")
+    except Exception as exc:
+        log(f"Exception during docker run: {exc}")
+        report(task_id, phase="completed_failed", msg=str(exc), status="failed")
         return False
 
 
-# ===================== 打包 output 目录 =====================
 def _zip_output_dir(output_dir: Path, result_zip: Path):
-    if not output_dir.exists():
+    if not output_dir.exists() or not any(output_dir.iterdir()):
         return False
-    if not any(output_dir.iterdir()):
-        return False
-    # 关键：root_dir 指向工作目录，base_dir 指向 'output'，从而 zip 里是 output/xxx
-    work_dir = output_dir.parent
-    shutil.make_archive(str(result_zip).replace(".zip", ""), "zip",
-                        root_dir=str(work_dir), base_dir="output")
+
+    shutil.make_archive(
+        str(result_zip).replace(".zip", ""),
+        "zip",
+        root_dir=str(output_dir.parent),
+        base_dir="output",
+    )
     return True
 
 
-# ===================== 处理任务 ZIP（保持旧版逻辑） =====================
 def process_task_zip(zip_path):
     task_file = Path(zip_path)
     if not task_file.name.endswith("_task.zip"):
-        return
+        return False
 
     task_id = task_file.stem.replace("_task", "")
     work_dir = Path(WORK_BASE_DIR) / task_id
     result_zip = Path(RESULT_DIR) / f"{task_id}_result.zip"
 
     log(f"Processing task: {task_id}")
-    report(task_id, phase="queued", msg="Task queued on client", progress=0, status="running")
+    report(task_id, phase="queued", msg="Task claimed by worker", progress=0, status="running")
 
     try:
         os.makedirs(work_dir, exist_ok=True)
@@ -289,41 +279,44 @@ def process_task_zip(zip_path):
         log(f"Extracted task zip to {work_dir}")
 
         input_dir = work_dir / "input"
-        if input_dir.exists() and not any(input_dir.iterdir()):
+        config = load_task_config(str(work_dir))
+        requires_input = config.get("requires_input", False)
+        if requires_input and (not input_dir.exists() or not any(input_dir.iterdir())):
             msg = "Task requires input data, but input/ is empty"
             log(f"{msg}. Skipping.")
             report(task_id, phase="completed_failed", msg=msg, status="failed")
-            report(task_id, phase="cleanup", msg="Cleaning up")
-            return
+            report(task_id, phase="cleanup", msg="Cleaning up", status="failed")
+            return False
 
-        config = load_task_config(str(work_dir))
         use_docker = config.get("use_docker", True)
-
         ok = run_docker_task(task_id, str(work_dir)) if use_docker else run_native_task(task_id, str(work_dir))
 
         if ok:
-            report(task_id, phase="running", msg="Packaging result", progress=80)
-            output_dir = work_dir / "output"
-            packed = _zip_output_dir(output_dir, result_zip)
+            report(task_id, phase="running", msg="Packaging result", progress=80, status="running")
+            packed = _zip_output_dir(work_dir / "output", result_zip)
             if not packed:
                 msg = "No output files found after execution."
                 log(msg)
                 report(task_id, phase="completed_failed", msg=msg, status="failed")
-            else:
-                log(f"Packaged result to {result_zip}")
-                report(task_id, phase="running", msg="Uploading result", progress=90)
-                uploaded = upload_result(task_id, result_zip)
-                if uploaded:
-                    report(task_id, phase="completed_success", msg="Task finished and result uploaded", progress=100, status="success")
-                else:
-                    report(task_id, phase="completed_failed", msg="Result upload failed", status="failed")
+                return False
 
-        report(task_id, phase="cleanup", msg="Cleaning up")
-    except Exception as e:
-        log(f"Exception while processing task {task_id}: {e}")
-        report(task_id, phase="completed_failed", msg=str(e), status="failed")
-        report(task_id, phase="cleanup", msg="Cleaning up after failure")
+            log(f"Packaged result to {result_zip}")
+            report(task_id, phase="running", msg="Uploading result", progress=90, status="running")
+            uploaded = upload_result(task_id, result_zip)
+            if uploaded:
+                report(task_id, phase="completed_success", msg="Task finished and result uploaded", progress=100, status="success")
+                return True
+
+            report(task_id, phase="completed_failed", msg="Result upload failed", status="failed")
+            return False
+
+        return False
+    except Exception as exc:
+        log(f"Exception while processing task {task_id}: {exc}")
+        report(task_id, phase="completed_failed", msg=str(exc), status="failed")
+        return False
     finally:
+        report(task_id, phase="cleanup", msg="Cleaning up")
         try:
             task_file.unlink(missing_ok=True)
             shutil.rmtree(work_dir, ignore_errors=True)
@@ -331,21 +324,17 @@ def process_task_zip(zip_path):
             log(f"Cleaned up task {task_id}")
 
 
-# ===================== 从 master 下载任务 ZIP =====================
-def download_task_zip(task_zip_name: str) -> str:
-    """
-    从 master 下载任务 zip 保存到本地 TASK_ZIP_DIR，返回本地路径。
-    """
+def download_task_zip(task_zip_name):
     url = f"{SERVER_URL}{API_BASE}/download_task/{task_zip_name}"
     local_path = os.path.join(TASK_ZIP_DIR, task_zip_name)
 
     log(f"Downloading task zip from {url} to {local_path}")
     try:
         resp = requests.get(url, timeout=60)
-        resp.raise_for_status()  # 如果请求失败，会抛出异常
-    except requests.exceptions.RequestException as e:
-        log(f"Error downloading {task_zip_name} from {url}: {e}")
-        raise  # 抛给上层，让 main() 记录错误
+        resp.raise_for_status()
+    except requests.exceptions.RequestException as exc:
+        log(f"Error downloading {task_zip_name} from {url}: {exc}")
+        raise
 
     with open(local_path, "wb") as f:
         f.write(resp.content)
@@ -353,36 +342,72 @@ def download_task_zip(task_zip_name: str) -> str:
     return local_path
 
 
-# ===================== 主循环 =====================
+def claim_task():
+    raw = rds.brpoplpush(TASK_QUEUE_HIGH, PROCESSING_QUEUE_HIGH, timeout=1)
+    if raw is not None:
+        return TASK_QUEUE_HIGH, PROCESSING_QUEUE_HIGH, raw
+
+    raw = rds.brpoplpush(TASK_QUEUE_NORMAL, PROCESSING_QUEUE_NORMAL, timeout=5)
+    if raw is not None:
+        return TASK_QUEUE_NORMAL, PROCESSING_QUEUE_NORMAL, raw
+
+    return None
+
+
+def ack_task(processing_queue, raw):
+    rds.lrem(processing_queue, 1, raw)
+
+
+def requeue_task(source_queue, processing_queue, raw):
+    removed = rds.lrem(processing_queue, 1, raw)
+    if removed:
+        rds.rpush(source_queue, raw)
+
+
+def recover_processing_queue(source_queue, processing_queue):
+    while True:
+        raw = rds.rpop(processing_queue)
+        if raw is None:
+            break
+        rds.rpush(source_queue, raw)
+        log(f"Recovered task from {processing_queue} back to {source_queue}")
+
+
 def main():
     log(f"Environment PATH: {os.environ.get('PATH')}")
+    log(f"Worker ID: {WORKER_ID}")
+    log(f"Processing queues: {PROCESSING_QUEUE_HIGH}, {PROCESSING_QUEUE_NORMAL}")
+    recover_processing_queue(TASK_QUEUE_HIGH, PROCESSING_QUEUE_HIGH)
+    recover_processing_queue(TASK_QUEUE_NORMAL, PROCESSING_QUEUE_NORMAL)
     log("Worker started, waiting for tasks from Redis (high + normal)...")
 
     while True:
+        source_queue = None
+        processing_queue = None
+        raw = None
+        task_id = None
+
         try:
-            # 阻塞等待队列任务，优先从高优队列取
-            res = rds.blpop([TASK_QUEUE_HIGH, TASK_QUEUE_NORMAL], timeout=5)
-            if not res:
-                # 5 秒内没有任务，打印一条日志方便确认 worker 活着
+            claimed = claim_task()
+            if not claimed:
                 log("No tasks in queue, waiting...")
                 continue
 
-            queue_name, raw = res
-            queue_name = queue_name.decode("utf-8")
+            source_queue, processing_queue, raw = claimed
             task_msg = json.loads(raw.decode("utf-8"))
             task_id = task_msg["task_id"]
             task_zip_name = task_msg["task_zip"]
 
-            log(f"Got task from {queue_name}: task_id={task_id}, zip={task_zip_name}")
-
-            # 1. 从 master 下载任务 zip 到本地
+            log(f"Got task from {source_queue}: task_id={task_id}, zip={task_zip_name}")
             local_zip_path = download_task_zip(task_zip_name)
-
-            # 2. 复用原来的处理逻辑
             process_task_zip(local_zip_path)
-
-        except Exception as e:
-            log(f"Worker loop error: {e}")
+            ack_task(processing_queue, raw)
+        except Exception as exc:
+            log(f"Worker loop error: {exc}")
+            if task_id:
+                report(task_id, phase="completed_failed", msg=str(exc), status="failed")
+            if source_queue and processing_queue and raw is not None:
+                requeue_task(source_queue, processing_queue, raw)
             time.sleep(2)
 
 

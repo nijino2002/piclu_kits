@@ -2,7 +2,9 @@ import os
 import time
 import logging
 import shutil
+import uuid
 from pathlib import Path
+import zipfile
 from flask import Flask, render_template, request, jsonify, send_from_directory
 import paramiko
 from werkzeug.utils import secure_filename
@@ -36,6 +38,53 @@ task_status_map = {}     # task_id -> status
 status_lock = Lock()     # 多线程并发写保护
 
 API_BASE = "/pi_task"
+
+
+def _read_status_file_lines(task_id):
+    status_file = os.path.join(TASK_DIR, f"{task_id}_status.txt")
+    if not os.path.exists(status_file):
+        return None, []
+    with open(status_file, "r", encoding="utf-8") as f:
+        return status_file, f.readlines()
+
+
+def _extract_current_status(task_id):
+    _, lines = _read_status_file_lines(task_id)
+    current_status = None
+    for line in lines:
+        if line.startswith("Current status:"):
+            current_status = line.strip().split(":", 1)[1].strip()
+    if current_status:
+        return current_status
+    with status_lock:
+        return task_status_map.get(task_id, "queued")
+
+
+def _update_status_file(task_id, status, phase=None, msg=None, progress=None):
+    status_file, lines = _read_status_file_lines(task_id)
+    if not status_file:
+        return
+
+    updated = []
+    replaced = False
+    for line in lines:
+        if line.startswith("Current status:"):
+            updated.append(f"Current status: {status}\n")
+            replaced = True
+        else:
+            updated.append(line)
+
+    if not replaced:
+        updated.append(f"Current status: {status}\n")
+    if phase:
+        updated.append(f"Phase: {phase}\n")
+    if progress is not None:
+        updated.append(f"Progress: {progress}\n")
+    if msg:
+        updated.append(f"Message: {msg}\n")
+
+    with open(status_file, "w", encoding="utf-8") as f:
+        f.writelines(updated)
 
 @app.route(API_BASE + '/')
 def index():
@@ -224,7 +273,6 @@ def list_result_tasks():
 @app.route(API_BASE + '/start_task', methods=['POST'])
 def start_task():
     try:
-        ip = request.form['ip']
         task_file = request.files['task_file']
         task_type = request.form['task_type']
         dependency_id = request.form.get('dependency_id', '').strip()
@@ -234,9 +282,8 @@ def start_task():
         if priority not in ("high", "normal"):
             priority = "normal"
 
-        timestamp = str(int(time.time()))
         filename = secure_filename(task_file.filename)
-        task_id = timestamp
+        task_id = uuid.uuid4().hex
         saved_zip_name = f"{task_id}_task.zip"
         saved_zip_path = os.path.join(TASK_DIR, saved_zip_name)
         task_file.save(saved_zip_path)
@@ -267,10 +314,10 @@ def start_task():
                 logger.warning(f"Dependency result {dependency_id}_result.zip not found.")
 
         status_file = os.path.join(TASK_DIR, f"{task_id}_status.txt")
-        with open(status_file, 'w') as f:
+        with open(status_file, 'w', encoding="utf-8") as f:
             f.write(f"Task {task_id} submitted.\n")
             f.write(f"Submitted at: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Client IP: {ip}\n")
+            f.write("Client IP: Any Worker\n")
             f.write(f"Task type: {task_type}\n")
             f.write(f"Priority: {priority}\n") 
             if dependency_id:
@@ -289,7 +336,7 @@ def start_task():
             queue_name = TASK_QUEUE_HIGH
         else:
             queue_name = TASK_QUEUE_NORMAL
-        rds.rpush(queue_name, json.dumps(task_message))
+        rds.lpush(queue_name, json.dumps(task_message))
         logger.info(f"Pushed task {task_id} into Redis queue {queue_name}")
         return jsonify({'status': 'success',
                         'message': 'Task queued, waiting for worker to pick it up',
@@ -326,23 +373,39 @@ def task_status(task_id):
     if not os.path.exists(status_file):
         return jsonify({'status': 'error', 'message': 'Task not found'})
 
-    with open(status_file, 'r') as f:
+    with open(status_file, 'r', encoding="utf-8") as f:
         content = f.read()
 
     result_url = f"/download_result/{task_id}_result.zip" if os.path.exists(result_zip) else None
 
-    return jsonify({'status': 'completed', 'log': content, 'result': result_url})
+    return jsonify({
+        'status': _extract_current_status(task_id),
+        'log': content,
+        'result': result_url
+    })
 
 @app.route(API_BASE + "/report_status/<task_id>", methods=["POST"])
 def report_status(task_id):
-    data = request.get_json()
+    data = request.get_json() or {}
     status = data.get("status")
+    phase = data.get("phase")
+    msg = data.get("msg")
+    progress = data.get("progress")
 
-    if status not in ("running", "success", "failed"):
+    if status is None:
+        if phase == "completed_success":
+            status = "success"
+        elif phase == "completed_failed":
+            status = "failed"
+        else:
+            status = "running"
+
+    if status not in ("queued", "running", "success", "failed"):
         return jsonify({"error": "Invalid status"}), 400
 
     with status_lock:
         task_status_map[task_id] = status
+    _update_status_file(task_id, status, phase=phase, msg=msg, progress=progress)
     app.logger.info(f"[STATUS] Task {task_id} reported status: {status}")
     return jsonify({"message": "Status updated"}), 200
 
@@ -379,9 +442,10 @@ def upload_result(filename):
         use_docker = True
 
     if os.path.exists(status_file):
-        with open(status_file, 'a') as f:
+        with open(status_file, 'a', encoding="utf-8") as f:
             f.write(f"Completed at: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"Use Docker: {use_docker}\n")
+    _update_status_file(task_id, "success", phase="completed_success", progress=100, msg="Result uploaded successfully")
 
     # 结果上传成功后，删除原始任务包 {_task.zip}
     try:
