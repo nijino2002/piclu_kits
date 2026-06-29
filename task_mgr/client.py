@@ -7,6 +7,7 @@ import subprocess
 import time
 import socket
 import zipfile
+import threading
 from pathlib import Path
 
 import redis
@@ -27,6 +28,9 @@ TASK_QUEUE_NORMAL = "pi_task_normal"
 WORKER_ID = socket.gethostname()
 PROCESSING_QUEUE_HIGH = f"pi_task_high_processing_{WORKER_ID}"
 PROCESSING_QUEUE_NORMAL = f"pi_task_normal_processing_{WORKER_ID}"
+
+CURRENT_TASK_ID = None
+HEARTBEAT_INTERVAL = int(os.getenv("HEARTBEAT_INTERVAL", "10"))
 
 BASE_IMAGE_CANDIDATES = [
     "python:3.11-slim-bookworm",
@@ -52,7 +56,11 @@ def log(msg):
 
 
 def report(task_id, phase=None, msg=None, progress=None, status=None):
-    payload = {}
+    payload = {
+        "worker_id": WORKER_ID,
+        "hostname": socket.gethostname(),
+        "ip_address": _worker_ip(),
+    }
     if phase is not None:
         payload["phase"] = phase
     if msg is not None:
@@ -72,6 +80,31 @@ def report(task_id, phase=None, msg=None, progress=None, status=None):
     except Exception as exc:
         log(f"Report status failed: {exc}")
 
+def _worker_ip():
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            return sock.getsockname()[0]
+    except OSError:
+        return None
+
+
+def heartbeat_loop():
+    while True:
+        try:
+            requests.post(
+                f"{SERVER_URL}{API_BASE}/workers/heartbeat",
+                json={
+                    "worker_id": WORKER_ID,
+                    "hostname": socket.gethostname(),
+                    "ip_address": _worker_ip(),
+                    "current_task_id": CURRENT_TASK_ID,
+                },
+                timeout=5,
+            )
+        except Exception as exc:
+            log(f"Heartbeat failed: {exc}")
+        time.sleep(HEARTBEAT_INTERVAL)
 
 def load_task_config(task_dir):
     config_path = os.path.join(task_dir, "task_config.json")
@@ -374,12 +407,16 @@ def recover_processing_queue(source_queue, processing_queue):
 
 
 def main():
+    global CURRENT_TASK_ID
     log(f"Environment PATH: {os.environ.get('PATH')}")
     log(f"Worker ID: {WORKER_ID}")
     log(f"Processing queues: {PROCESSING_QUEUE_HIGH}, {PROCESSING_QUEUE_NORMAL}")
     recover_processing_queue(TASK_QUEUE_HIGH, PROCESSING_QUEUE_HIGH)
     recover_processing_queue(TASK_QUEUE_NORMAL, PROCESSING_QUEUE_NORMAL)
     log("Worker started, waiting for tasks from Redis (high + normal)...")
+
+    heartbeat = threading.Thread(target=heartbeat_loop, daemon=True)
+    heartbeat.start()
 
     while True:
         source_queue = None
@@ -397,17 +434,20 @@ def main():
             task_msg = json.loads(raw.decode("utf-8"))
             task_id = task_msg["task_id"]
             task_zip_name = task_msg["task_zip"]
+            CURRENT_TASK_ID = task_id
 
             log(f"Got task from {source_queue}: task_id={task_id}, zip={task_zip_name}")
             local_zip_path = download_task_zip(task_zip_name)
             process_task_zip(local_zip_path)
             ack_task(processing_queue, raw)
+            CURRENT_TASK_ID = None
         except Exception as exc:
             log(f"Worker loop error: {exc}")
             if task_id:
-                report(task_id, phase="completed_failed", msg=str(exc), status="failed")
+                report(task_id, phase="completed_failed", msg=str(exc), progress=100, status="failed")
             if source_queue and processing_queue and raw is not None:
                 requeue_task(source_queue, processing_queue, raw)
+            CURRENT_TASK_ID = None
             time.sleep(2)
 
 

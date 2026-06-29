@@ -469,5 +469,16 @@ def download_result(filename):
 def download_task(filename):
     return send_from_directory(TASK_DIR, filename)
 
+from mysql_routes import install_mysql_routes
+
+install_mysql_routes(
+    app=app,
+    redis_client=rds,
+    api_base=API_BASE,
+    high_queue=TASK_QUEUE_HIGH,
+    normal_queue=TASK_QUEUE_NORMAL,
+)
+
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
