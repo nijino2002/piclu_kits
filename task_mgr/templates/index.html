@@ -111,18 +111,6 @@
                 <option value="">-- None --</option>
               </select>
             </div>
-            <div class="form-group form-check">
-              <input
-                type="checkbox"
-                class="form-check-input"
-                id="use_docker"
-                name="use_docker"
-                checked
-              />
-              <label class="form-check-label" for="use_docker"
-                >Use Docker to execute the task</label
-              >
-            </div>
             <button type="submit" class="btn btn-primary btn-block">
               Submit Task
             </button>
@@ -149,10 +137,20 @@
         <div class="card-body">
           {% if ip_groups %} {% for ip, task_list in ip_groups.items() %}
           <details style="margin-bottom: 10px">
+            {% set worker = worker_statuses.get(ip) %}
             <summary>
               <i class="fa-brands fa-raspberry-pi">&nbsp;&nbsp;</i
-              ><strong>Client IP:</strong> {{ ip }} ({{ task_list|length }}
-              tasks)
+              ><strong>Worker:</strong> {{ ip }} {% if worker %}
+              <span
+                class="badge badge-{{
+                'danger' if worker.status == 'offline'
+                else 'warning' if worker.status == 'busy'
+                else 'success'
+              }}"
+              >
+                {{ worker.status }}
+              </span>
+              {% endif %} ({{ task_list|length }} tasks)
             </summary>
             <ul class="list-group mt-2">
               {% for task in task_list %}
@@ -451,7 +449,7 @@
               $("#downloadLink")
                 .attr(
                   "href",
-                  API_BASE + "/download_result/" + taskId + "_result.zip"
+                  API_BASE + "/download_result/" + taskId + "_result.zip",
                 )
                 .show();
               clearInterval(interval);
@@ -461,7 +459,7 @@
           }).fail(function (xhr) {
             clearInterval(interval);
             $("#taskStatus").html(
-              "<pre>Error fetching task status: " + xhr.responseText + "</pre>"
+              "<pre>Error fetching task status: " + xhr.responseText + "</pre>",
             );
           });
         }, 1000);
@@ -477,7 +475,7 @@
             $("#downloadLink")
               .attr(
                 "href",
-                API_BASE + "/download_result/" + taskId + "_result.zip"
+                API_BASE + "/download_result/" + taskId + "_result.zip",
               )
               .show();
           } else {
@@ -485,7 +483,7 @@
           }
           $("html, body").animate(
             { scrollTop: $("#taskStatusSection").offset().top },
-            "slow"
+            "slow",
           );
         }).fail(function () {
           alert("Failed to load task status");
@@ -505,7 +503,7 @@
             });
           })
           .catch((error) =>
-            console.error("Failed to load dependent tasks:", error)
+            console.error("Failed to load dependent tasks:", error),
           );
 
         document.querySelectorAll('[id^="status_"]').forEach((el) => {
@@ -544,7 +542,7 @@
               document.getElementById("task_type").value = match[1];
             } else {
               console.warn(
-                "Filename does not follow <task_type>_task.zip pattern"
+                "Filename does not follow <task_type>_task.zip pattern",
               );
             }
           }
